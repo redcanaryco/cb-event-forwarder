@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/carbonblack/cb-event-forwarder/leef"
 	"github.com/carbonblack/cb-event-forwarder/sensor_events"
+	"github.com/pborman/uuid"
 	"github.com/streadway/amqp"
 	"log"
 	"net"
@@ -50,6 +51,7 @@ var status Status
 var (
 	results       chan string
 	output_errors chan error
+	audit_logs    chan map[string]interface{}
 )
 
 /*
@@ -86,6 +88,7 @@ func init() {
 
 	results = make(chan string, 100)
 	output_errors = make(chan error)
+	audit_logs = make(chan map[string]interface{}, 100)
 
 	status.StartTime = time.Now()
 }
@@ -209,6 +212,8 @@ func outputMessage(msg map[string]interface{}) error {
 	// Marshal result into the correct output format
 	//
 	msg["cb_server"] = config.ServerName
+	event_uuid := uuid.NewRandom()
+	msg["event_guid"] = fmt.Sprintf("%s|%s|%s", config.ServerName, msg["process_guid"], event_uuid.String())
 
 	var outmsg string
 
@@ -226,6 +231,7 @@ func outputMessage(msg map[string]interface{}) error {
 	if len(outmsg) > 0 && err == nil {
 		status.OutputEventCount.Add(1)
 		results <- string(outmsg)
+		audit_logs <- msg
 	} else {
 		return err
 	}
@@ -411,6 +417,9 @@ func main() {
 	if err != nil {
 		log.Fatal("Could not get IP addresses")
 	}
+
+	auditLogger := NewAuditLogger(audit_logs)
+	auditLogger.run()
 
 	log.Printf("cb-event-forwarder version %s starting", version)
 
