@@ -86,6 +86,7 @@ type Configuration struct {
 	SyslogTLSVerify           bool
 
 	// Audit redis configuration
+	AuditingEnabled          bool
 	AuditRedisHost           string
 	AuditRedisDatabaseNumber int
 	AuditPipelineSize        int
@@ -404,28 +405,39 @@ func ParseConfig(fn string) (Configuration, error) {
 		return config, errs
 	}
 
-	val, ok = input.Get("audit", "redis_host")
-	log.Println("HOST: ", val)
+	val, ok = input.Get("audit", "enabled")
+	log.Println("Auditing Enabled: ", val)
 	if ok {
-		log.Println("HOST: ", val)
-		config.AuditRedisHost = val
-	} else {
-		log.Panic("NOT OK")
-	}
-
-	val, ok = input.Get("audit", "redis_database_number")
-	if ok {
-		db_number, err := strconv.Atoi(val)
+		b, err := strconv.ParseBool(val)
 		if err == nil {
-			config.AuditRedisDatabaseNumber = db_number
+			config.AuditingEnabled = b
 		}
 	}
 
-	val, ok = input.Get("audit", "pipeline_size")
-	if ok {
-		pipeline_size, err := strconv.Atoi(val)
-		if err == nil {
-			config.AuditPipelineSize = pipeline_size
+	if config.AuditingEnabled == true {
+		val, ok = input.Get("audit", "redis_host")
+		log.Println("HOST: ", val)
+		if ok {
+			log.Println("HOST: ", val)
+			config.AuditRedisHost = val
+		} else {
+			log.Panic("NOT OK")
+		}
+
+		val, ok = input.Get("audit", "redis_database_number")
+		if ok {
+			db_number, err := strconv.Atoi(val)
+			if err == nil {
+				config.AuditRedisDatabaseNumber = db_number
+			}
+		}
+
+		val, ok = input.Get("audit", "pipeline_size")
+		if ok {
+			pipeline_size, err := strconv.Atoi(val)
+			if err == nil {
+				config.AuditPipelineSize = pipeline_size
+			}
 		}
 	}
 

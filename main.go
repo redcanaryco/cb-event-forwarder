@@ -63,6 +63,18 @@ func init() {
 	status.OutputEventCount = expvar.NewInt("output_event_count")
 	status.ErrorCount = expvar.NewInt("error_count")
 
+	status.EventCounter = ratecounter.NewRateCounter(5 * time.Second)
+	status.OutputBytesPerSecond = ratecounter.NewRateCounter(5 * time.Second)
+
+	expvar.Publish("input_events_per_second",
+		expvar.Func(func() interface{} {
+			return float64(status.EventCounter.Rate()) / 5.0
+		}))
+	expvar.Publish("output_bytes_per_second",
+		expvar.Func(func() interface{} {
+			return float64(status.OutputBytesPerSecond.Rate()) / 5.0
+		}))
+
 	expvar.Publish("connection_status",
 		expvar.Func(func() interface{} {
 			res := make(map[string]interface{}, 0)
@@ -231,7 +243,9 @@ func outputMessage(msg map[string]interface{}) error {
 	if len(outmsg) > 0 && err == nil {
 		status.OutputEventCount.Add(1)
 		results <- string(outmsg)
-		audit_logs <- msg
+		if config.AuditingEnabled == true {
+			audit_logs <- msg
+		}
 	} else {
 		return err
 	}
@@ -418,8 +432,10 @@ func main() {
 		log.Fatal("Could not get IP addresses")
 	}
 
-	auditLogger := NewAuditLogger(audit_logs)
-	auditLogger.run()
+	if config.AuditingEnabled == true {
+		auditLogger := NewAuditLogger(audit_logs)
+		auditLogger.run()
+	}
 
 	log.Printf("cb-event-forwarder version %s starting", version)
 
@@ -431,7 +447,9 @@ func main() {
 	} else {
 		exportedVersion.Set(version)
 	}
-	expvar.Publish("debug", expvar.Func(func() interface{} { return *debug }))
+	expvar.Publish("debug", expvar.Func(func() interface{} {
+		return *debug
+	}))
 
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
