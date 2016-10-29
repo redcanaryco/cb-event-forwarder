@@ -227,6 +227,10 @@ func outputMessage(msg map[string]interface{}) error {
 	event_uuid := uuid.NewRandom()
 	msg["event_guid"] = fmt.Sprintf("%s|%s|%s", config.ServerName, msg["process_guid"], event_uuid.String())
 
+	if config.AuditingEnabled == true {
+		msg["audit"] = "true"
+	}
+
 	var outmsg string
 
 	switch config.OutputFormat {
@@ -243,7 +247,6 @@ func outputMessage(msg map[string]interface{}) error {
 	if len(outmsg) > 0 && err == nil {
 		status.OutputEventCount.Add(1)
 		if config.AuditingEnabled == true {
-			msg["audit"] = true
 			audit_logs <- msg
 		}
 		results <- string(outmsg)
