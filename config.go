@@ -273,19 +273,19 @@ func ParseConfig(fn string) (Configuration, error) {
 		}
 	}
 
-	rabbitKeyFilename, ok := input.Get("bridge", "rabbit_mq_key")
+	clientKeyFilename, ok := input.Get("bridge", "rabbit_mq_key")
 	if ok {
-		config.AMQPTLSClientKey = rabbitKeyFilename
+		config.AMQPTLSClientKey = clientKeyFilename
 	}
 
-	rabbitCertFilename, ok := input.Get("bridge", "rabbit_mq_cert")
+	clientCertFilename, ok := input.Get("bridge", "rabbit_mq_cert")
 	if ok {
-		config.AMQPTLSClientCert = rabbitCertFilename
+		config.AMQPTLSClientCert = clientCertFilename
 	}
 
-	rabbitCaCertFilename, ok := input.Get("bridge", "rabbit_mq_ca_cert")
+	caCertFilename, ok := input.Get("bridge", "rabbit_mq_ca_cert")
 	if ok {
-		config.AMQPTLSCACert = rabbitCaCertFilename
+		config.AMQPTLSCACert = caCertFilename
 	}
 
 	val, ok = input.Get("bridge", "cb_server_hostname")
