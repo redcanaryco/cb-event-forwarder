@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type S3Behavior struct {
@@ -31,7 +32,14 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 	// If a prefix is specified then concatenate it with the Base of the filename
 	//
 	if config.S3ObjectPrefix != nil {
-		s := []string{*config.S3ObjectPrefix, filepath.Base(fileName)}
+		prefix := *config.S3ObjectPrefix
+
+		if config.S3IncludeDateInPrefix == true {
+			current_time := time.Now().UTC()
+			s := []string{prefix, current_time.Format("2006-01-02")}
+			prefix = strings.Join(s,"/")
+		}
+		s := []string{prefix, filepath.Base(fileName)}
 		baseName = strings.Join(s, "/")
 	} else {
 		baseName = filepath.Base(fileName)

@@ -53,6 +53,7 @@ type Configuration struct {
 	S3CredentialProfileName *string
 	S3ACLPolicy             *string
 	S3ObjectPrefix          *string
+	S3IncludeDateInPrefix   bool
 
 	// Syslog-specific configuration
 	TLSClientKey  *string
@@ -336,6 +337,16 @@ func ParseConfig(fn string) (Configuration, error) {
 			objectPrefix, ok := input.Get("s3", "object_prefix")
 			if ok {
 				config.S3ObjectPrefix = &objectPrefix
+			}
+
+			val, ok = input.Get("s3", "include_date_in_prefix")
+			if ok {
+				if ok {
+					b, err := strconv.ParseBool(val)
+					if err == nil {
+						config.S3IncludeDateInPrefix = b
+					}
+				}
 			}
 		case "http":
 			parameterKey = "httpout"
