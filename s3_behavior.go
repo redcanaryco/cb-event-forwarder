@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,13 +59,37 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 		baseName = filepath.Base(fileName)
 	}
 
+	var byteReader io.ReadSeeker
+
+	if config.S3CompressData != false {
+		baseName += ".gz"
+		fileReader := bufio.NewReader(fp)
+
+		var gzBytes bytes.Buffer
+		gzWriter := gzip.NewWriter(&gzBytes)
+
+		fileContents, ferr := ioutil.ReadAll(fileReader)
+		if ferr != nil {
+			return UploadStatus{fileName: fileName, result: ferr}
+		}
+
+		gzWriter.Write(fileContents)
+		gzWriter.Close()
+
+		byteReader = bytes.NewReader(gzBytes.Bytes())
+
+	} else {
+		byteReader = fp
+	}
+
 	_, err := o.out.PutObject(&s3.PutObjectInput{
-		Body:                 fp,
+		Body:                 byteReader,
 		Bucket:               &o.bucketName,
 		Key:                  &baseName,
 		ServerSideEncryption: config.S3ServerSideEncryption,
 		ACL:                  config.S3ACLPolicy,
 	})
+
 	fp.Close()
 
 	log.WithFields(log.Fields{"Filename": fileName, "Bucket": &o.bucketName}).Debug("Uploading File to Bucket")
