@@ -6,13 +6,14 @@ import (
 	"errors"
 	_ "expvar"
 	"fmt"
-	"github.com/vaughan0/go-ini"
 	"io/ioutil"
 	"log"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/vaughan0/go-ini"
 )
 
 const (
@@ -42,6 +43,7 @@ type Configuration struct {
 	AMQPTLSClientKey     string
 	AMQPTLSClientCert    string
 	AMQPTLSCACert        string
+	AMQPQueueName        string
 	OutputParameters     string
 	EventTypes           []string
 	HTTPServerPort       int
@@ -285,6 +287,11 @@ func ParseConfig(fn string) (Configuration, error) {
 	caCertFilename, ok := input.Get("bridge", "rabbit_mq_ca_cert")
 	if ok {
 		config.AMQPTLSCACert = caCertFilename
+	}
+
+	rabbitQueueName, ok := input.Get("bridge", "rabbit_mq_queue_name")
+	if ok {
+		config.AMQPQueueName = rabbitQueueName
 	}
 
 	val, ok = input.Get("bridge", "cb_server_hostname")
