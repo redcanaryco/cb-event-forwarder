@@ -9,10 +9,8 @@ import (
 	"expvar"
 	"flag"
 	"fmt"
-	"github.com/carbonblack/cb-event-forwarder/leef"
-	"github.com/carbonblack/cb-event-forwarder/sensor_events"
+	"github.com/hpcloud/tail"
 	log "github.com/sirupsen/logrus"
-	"github.com/streadway/amqp"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -22,6 +20,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/carbonblack/cb-event-forwarder/leef"
+	"github.com/carbonblack/cb-event-forwarder/sensor_events"
+	"github.com/pborman/uuid"
+	"github.com/streadway/amqp"
 )
 
 import _ "net/http/pprof"
@@ -281,7 +284,6 @@ func logFileProcessingLoop() <-chan error {
 			err_chan <- err
 		}
 
-
 		for delivery := range deliveries {
 			log.Debug("Trying to deliver log message %s", delivery)
 			msg_map := make(map[string]interface{})
@@ -293,17 +295,17 @@ func logFileProcessingLoop() <-chan error {
 	}
 
 	/* maps audit log labels to event types
-AUDIT_TYPES = {
-    "cb-audit-isolation": Audit_Log_Isolation,
-    "cb-audit-banning": Audit_Log_Banning,
-    "cb-audit-live-response": Audit_Log_Liveresponse,
-    "cb-audit-useractivity": Audit_Log_Useractivity
-}
-*/
-	go spawn_tailer("/var/log/cb/audit/live-response.log","audit.log.liveresponse")
-	go spawn_tailer("/var/log/cb/audit/banning.log","audit.log.banning")
-	go spawn_tailer("/var/log/cb/audit/isolation.log","audit.log.isolation")
-	go spawn_tailer("/var/log/cb/audit/useractivity.log","audit.log.useractivity")
+	AUDIT_TYPES = {
+	    "cb-audit-isolation": Audit_Log_Isolation,
+	    "cb-audit-banning": Audit_Log_Banning,
+	    "cb-audit-live-response": Audit_Log_Liveresponse,
+	    "cb-audit-useractivity": Audit_Log_Useractivity
+	}
+	*/
+	go spawn_tailer("/var/log/cb/audit/live-response.log", "audit.log.liveresponse")
+	go spawn_tailer("/var/log/cb/audit/banning.log", "audit.log.banning")
+	go spawn_tailer("/var/log/cb/audit/isolation.log", "audit.log.isolation")
+	go spawn_tailer("/var/log/cb/audit/useractivity.log", "audit.log.useractivity")
 	return err_chan
 }
 

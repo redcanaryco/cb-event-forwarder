@@ -7,12 +7,13 @@ import (
 	_ "expvar"
 	"fmt"
 	log "github.com/sirupsen/logrus"
-	"github.com/vaughan0/go-ini"
 	"io/ioutil"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/vaughan0/go-ini"
 )
 
 const (
