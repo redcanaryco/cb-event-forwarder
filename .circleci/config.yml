@@ -11,9 +11,11 @@ jobs:
       - run:
           name: 'Build'
           command: |
-            go get github.com/tools/godep
-            godep restore
-            godep go build
+            go get -u github.com/golang/protobuf/proto
+            go get -u github.com/golang/protobuf/protoc-gen-go
+            go generate ./...
+            go get ./...
+            go build
       - run:
           name: 'Run unit tests'
           command: |
