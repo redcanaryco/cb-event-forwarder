@@ -11,6 +11,7 @@ jobs:
       - run:
           name: 'Build'
           command: |
+            export GOPATH=$GOPATH:$HOME/.go_project
             go get -u github.com/golang/protobuf/proto
             go get -u github.com/golang/protobuf/protoc-gen-go
             go generate ./...
