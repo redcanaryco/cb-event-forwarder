@@ -12,8 +12,7 @@ jobs:
           name: 'Build'
           command: |
             go get github.com/tools/godep
-            go install
-            make build
+            godep go build
       - run:
           name: 'Run unit tests'
           command: |
