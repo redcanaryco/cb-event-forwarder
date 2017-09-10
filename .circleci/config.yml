@@ -3,6 +3,10 @@ jobs:
   build:
     docker:
       - image: circleci/golang:1.8
+        environment:
+          GOROOT: ""
+          PATH: "/usr/local/go/bin:/usr/local/go_workspace/bin:~/.go_workspace/bin:${PATH}"
+          GOPATH: "${HOME}/.go_workspace:/usr/local/go_workspace:${HOME}/.go_project"
 
     working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
 
@@ -11,7 +15,6 @@ jobs:
       - run:
           name: 'Build'
           command: |
-            export GOPATH=$GOPATH:$HOME/.go_project
             go get -u github.com/golang/protobuf/proto
             go get -u github.com/golang/protobuf/protoc-gen-go
             go generate ./...
