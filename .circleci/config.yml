@@ -11,9 +11,8 @@ jobs:
       - run:
           name: 'Build'
           command: |
-            export GOPATH=$(pwd)
-            go get -u github.com/golang/protobuf/proto
-            go get -u github.com/golang/protobuf/protoc-gen-go
+            go get github.com/tools/godep
+            go install
             make build
       - run:
           name: 'Run unit tests'
