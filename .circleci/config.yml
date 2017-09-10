@@ -12,6 +12,7 @@ jobs:
           name: 'Build'
           command: |
             go get github.com/tools/godep
+            godep restore
             godep go build
       - run:
           name: 'Run unit tests'
