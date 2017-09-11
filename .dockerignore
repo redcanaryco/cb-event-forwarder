@@ -1,5 +1,8 @@
 cb-event-forwarder
 
+Dockerfile
+.circleci
+
 .editorconfig
 .git
 AUTHORS.md
