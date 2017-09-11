@@ -7,8 +7,8 @@ jobs:
     steps:
       - checkout
 
-      - setup_remote_docker
-        version: 17.07.0-ce
+      - setup_remote_docker:
+          version: 17.07.0-ce
 
       - run:
           name: Build application Docker image
