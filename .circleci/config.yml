@@ -1,17 +1,16 @@
 version: 2
 jobs:
   build:
+    working_directory: /app
     docker:
       - image: docker:17.05.0-ce-git
-
-    working_directory: ~/
-
     steps:
       - checkout
       - setup_remote_docker
       - run:
-          name: 'Build docker container'
-          command: docker build -t redcanary/cb-event-forwarder .
+          name: Build application Docker image
+          command: |
+            docker build -t redcanary/cb-event-forwarder .
 
       - deploy:
           name: Deploy latest to docker
