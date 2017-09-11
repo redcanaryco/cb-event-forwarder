@@ -10,6 +10,7 @@ jobs:
       - run:
           name: Build application Docker image
           command: |
+            docker --version
             docker build -t redcanary/cb-event-forwarder .
 
       - deploy:
