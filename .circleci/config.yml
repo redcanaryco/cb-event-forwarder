@@ -6,7 +6,10 @@ jobs:
       - image: docker:17.09.0-ce-git
     steps:
       - checkout
+
       - setup_remote_docker
+        version: 17.07.0-ce
+
       - run:
           name: Build application Docker image
           command: |
