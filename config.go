@@ -35,6 +35,7 @@ type Configuration struct {
 	ServerName           string
 	AMQPHostname         string
 	DebugFlag            bool
+	DebugStore           string
 	OutputType           int
 	OutputFormat         int
 	AMQPUsername         string
@@ -206,6 +207,7 @@ func ParseConfig(fn string) (Configuration, error) {
 
 	// defaults
 	config.DebugFlag = false
+	config.DebugStore = "/tmp"
 	config.OutputFormat = JSONOutputFormat
 	config.OutputType = FileOutputType
 	config.AMQPHostname = "localhost"
@@ -230,6 +232,11 @@ func ParseConfig(fn string) (Configuration, error) {
 		if val == "1" {
 			config.DebugFlag = true
 		}
+	}
+
+	debugStore, ok := input.Get("bridge", "debug_store")
+	if ok {
+		config.DebugStore = debugStore
 	}
 
 	val, ok = input.Get("bridge", "http_server_port")
