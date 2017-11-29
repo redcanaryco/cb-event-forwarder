@@ -47,6 +47,7 @@ type Configuration struct {
 	AMQPTLSClientCert    string
 	AMQPTLSCACert        string
 	AMQPQueueName        string
+	AMQPAutoDeleteQueue  bool
 	OutputParameters     string
 	EventTypes           []string
 	EventMap             map[string]bool
@@ -230,6 +231,7 @@ func ParseConfig(fn string) (Configuration, error) {
 	config.S3ACLPolicy = nil
 	config.S3ServerSideEncryption = nil
 	config.S3CredentialProfileName = nil
+	config.AMQPAutoDeleteQueue = true
 
 	// required values
 	val, ok := input.Get("bridge", "server_name")
@@ -290,6 +292,14 @@ func ParseConfig(fn string) (Configuration, error) {
 			config.AMQPPort = port
 		}
 	}
+
+    val, ok = input.Get("bridge", "rabbit_mq_auto_delete_queue")
+    if ok {
+        b, err := strconv.ParseBool(val)
+        if err == nil {
+            config.AMQPAutoDeleteQueue = b
+        }
+    }
 
 	if len(config.AMQPUsername) == 0 || len(config.AMQPPassword) == 0 {
 		config.AMQPUsername, config.AMQPPassword, err = parseCbConf()

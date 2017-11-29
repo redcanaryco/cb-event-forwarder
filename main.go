@@ -309,10 +309,10 @@ func logFileProcessingLoop() <-chan error {
 	return err_chan
 }
 
-func messageProcessingLoop(uri, queueName, consumerTag string) error {
+func messageProcessingLoop(uri, queueName string, autoDelete bool, consumerTag string) error {
 	connection_error := make(chan *amqp.Error, 1)
 
-	c, deliveries, err := NewConsumer(uri, queueName, consumerTag, config.UseRawSensorExchange, config.EventTypes)
+	c, deliveries, err := NewConsumer(uri, queueName, autoDelete, consumerTag, config.UseRawSensorExchange, config.EventTypes)
 	if err != nil {
 		status.LastConnectError = err.Error()
 		status.ErrorTime = time.Now()
@@ -439,9 +439,12 @@ func main() {
 	}
 
 	configLocation := "/etc/cb/integrations/event-forwarder/cb-event-forwarder.conf"
+
 	if flag.NArg() > 0 {
 		configLocation = flag.Arg(0)
 	}
+	log.Printf("configLocation: %s", configLocation)
+
 	config, err = ParseConfig(configLocation)
 	if err != nil {
 		log.Fatal(err)
@@ -565,7 +568,8 @@ func main() {
 		go func(consumerNumber int) {
 			log.Infof("Starting AMQP loop %d to %s on queue %s", consumerNumber, config.AMQPURL(), queueName)
 			for {
-				err := messageProcessingLoop(config.AMQPURL(), queueName, fmt.Sprintf("go-event-consumer-%d", consumerNumber))
+				err := messageProcessingLoop(config.AMQPURL(), queueName, config.AMQPAutoDeleteQueue, fmt.Sprintf("go-event-consumer-%d", consumerNumber))
+
 				log.Infof("AMQP loop %d exited: %s. Sleeping for 30 seconds then retrying.", consumerNumber, err)
 				time.Sleep(30 * time.Second)
 			}
