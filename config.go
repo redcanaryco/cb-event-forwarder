@@ -44,6 +44,7 @@ type Configuration struct {
 	AMQPTLSClientCert    string
 	AMQPTLSCACert        string
 	AMQPQueueName        string
+	AMQPAutoDeleteQueue  bool
 	OutputParameters     string
 	EventTypes           []string
 	HTTPServerPort       int
@@ -214,6 +215,7 @@ func ParseConfig(fn string) (Configuration, error) {
 	config.S3ACLPolicy = nil
 	config.S3ServerSideEncryption = nil
 	config.S3CredentialProfileName = nil
+	config.AMQPAutoDeleteQueue = true
 
 	// required values
 	val, ok := input.Get("bridge", "server_name")
