@@ -2,16 +2,19 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"expvar"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"runtime"
 	"sync"
 	"time"
@@ -136,6 +139,15 @@ func reportBundleDetails(routingKey string, body []byte, headers amqp.Table) {
 	} else {
 		log.Println("  First four bytes of message were:")
 		log.Printf("  %s", hex.Dump(body[0:4]))
+	}
+
+	if config.DebugFlag {
+		h := md5.New()
+		h.Write(body)
+		var fullFilePath string
+		fullFilePath = path.Join(config.DebugStore, fmt.Sprintf("/event-forwarder-%X", h.Sum(nil)))
+		log.Printf("Writing Bundle to disk: %s", fullFilePath)
+		ioutil.WriteFile(fullFilePath, body, 0444)
 	}
 }
 
