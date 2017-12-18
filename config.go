@@ -50,6 +50,7 @@ type Configuration struct {
 	HTTPServerPort       int
 	CbServerURL          string
 	UseRawSensorExchange bool
+	MonitoredLogs        []string
 
 	// this is a hack for S3 specific configuration
 	S3ServerSideEncryption  *string
@@ -190,6 +191,15 @@ func (c *Configuration) parseEventTypes(input ini.File) {
 					c.EventTypes = append(c.EventTypes, routingKey)
 				}
 			}
+		}
+	}
+}
+
+func (c *Configuration) parseMonitoredLogs(input ini.File) {
+	val, ok := input.Get("bridge", "monitored_logs")
+	if ok {
+		for _, monitored_log := range strings.Split(val, ",") {
+			c.MonitoredLogs = append(c.MonitoredLogs, monitored_log)
 		}
 	}
 }
@@ -579,6 +589,8 @@ func ParseConfig(fn string) (Configuration, error) {
 	}
 
 	config.parseEventTypes(input)
+
+	config.parseMonitoredLogs(input)
 
 	if !errs.Empty {
 		return config, errs
