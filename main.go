@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -432,6 +433,33 @@ func startOutputs() error {
 	return outputHandler.Go(results, output_errors)
 }
 
+func monitorLog(logToMonitor string) {
+	fmt.Printf("monitoring log %s\n", logToMonitor)
+	t, _ := tail.TailFile(logToMonitor, tail.Config{Follow: true})
+	for line := range t.Lines {
+		var logJson map[string]interface{}
+		logJson = make(map[string]interface{})
+		logJson["message"] = line.Text
+		logJson["type"] = "log"
+		logJson["filename"] = logToMonitor
+
+		err := outputMessage(logJson)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func monitorLogs(logsToMonitor []string) {
+	for _, splitFiles := range logsToMonitor {
+		globbedFiles, _ := filepath.Glob(splitFiles)
+		for _, file := range globbedFiles {
+			go monitorLog(file)
+		}
+	}
+}
+
 func main() {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -559,6 +587,8 @@ func main() {
 	}
 
 	queueName := fmt.Sprintf("cb-event-forwarder:%s:%d", hostname, os.Getpid())
+
+	go monitorLogs(config.MonitoredLogs)
 
 	if config.AMQPQueueName != "" {
 		queueName = config.AMQPQueueName
