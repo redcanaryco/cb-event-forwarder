@@ -2,25 +2,31 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"expvar"
 	"flag"
 	"fmt"
-	"log"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/carbonblack/cb-event-forwarder/leef"
 	"github.com/carbonblack/cb-event-forwarder/sensor_events"
 	"github.com/pborman/uuid"
+	log "github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 )
+
+import _ "net/http/pprof"
 
 var (
 	checkConfiguration = flag.Bool("check", false, "Check the configuration file and exit")
@@ -118,24 +124,36 @@ type OutputHandler interface {
 // TODO: change this into an error channel
 func reportError(d string, errmsg string, err error) {
 	status.ErrorCount.Add(1)
-	log.Printf("%s when processing %s: %s", errmsg, d, err)
+	log.Errorf("%s when processing %s: %s", errmsg, d, err)
 }
 
 func reportBundleDetails(routingKey string, body []byte, headers amqp.Table) {
-	log.Printf("Error while processing message through routing key %s:", routingKey)
+	log.Errorf("Error while processing message through routing key %s:", routingKey)
 
 	var env *sensor_events.CbEnvironmentMsg
 	env, err := createEnvMessage(headers)
 	if err != nil {
-		log.Printf("  Message was received from sensor %d; hostname %s", env.Endpoint.GetSensorId(),
+		log.Errorf("  Message was received from sensor %d; hostname %s", env.Endpoint.GetSensorId(),
 			env.Endpoint.GetSensorHostName())
 	}
 
 	if len(body) < 4 {
-		log.Println("  Message is less than 4 bytes long; malformed")
+		log.Info("  Message is less than 4 bytes long; malformed")
 	} else {
-		log.Println("  First four bytes of message were:")
-		log.Printf("  %s", hex.Dump(body[0:4]))
+		log.Info("  First four bytes of message were:")
+		log.Errorf("  %s", hex.Dump(body[0:4]))
+	}
+
+	/*
+	 * We are going to store this bundle in the DebugStore
+	 */
+	if config.DebugFlag {
+		h := md5.New()
+		h.Write(body)
+		var fullFilePath string
+		fullFilePath = path.Join(config.DebugStore, fmt.Sprintf("/event-forwarder-%X", h.Sum(nil)))
+		log.Debugf("Writing Bundle to disk: %s", fullFilePath)
+		ioutil.WriteFile(fullFilePath, body, 0444)
 	}
 }
 
@@ -258,7 +276,48 @@ func worker(deliveries <-chan amqp.Delivery) {
 			delivery.Exchange)
 	}
 
-	log.Println("Worker exiting")
+	log.Info("Worker exiting")
+}
+
+func logFileProcessingLoop() <-chan error {
+
+	err_chan := make(chan error)
+
+	spawn_tailer := func(fName string, label string) {
+
+		log.Debugf("Spawn tailer: %s", fName)
+
+		_, deliveries, err := NewFileConsumer(fName)
+
+		if err != nil {
+			status.LastConnectError = err.Error()
+			status.ErrorTime = time.Now()
+			err_chan <- err
+		}
+
+		for delivery := range deliveries {
+			log.Debug("Trying to deliver log message %s", delivery)
+			msg_map := make(map[string]interface{})
+			msg_map["message"] = strings.TrimSuffix(delivery, "\n")
+			msg_map["type"] = label
+			outputMessage(msg_map)
+		}
+
+	}
+
+	/* maps audit log labels to event types
+	AUDIT_TYPES = {
+	    "cb-audit-isolation": Audit_Log_Isolation,
+	    "cb-audit-banning": Audit_Log_Banning,
+	    "cb-audit-live-response": Audit_Log_Liveresponse,
+	    "cb-audit-useractivity": Audit_Log_Useractivity
+	}
+	*/
+	go spawn_tailer("/var/log/cb/audit/live-response.log", "audit.log.liveresponse")
+	go spawn_tailer("/var/log/cb/audit/banning.log", "audit.log.banning")
+	go spawn_tailer("/var/log/cb/audit/isolation.log", "audit.log.isolation")
+	go spawn_tailer("/var/log/cb/audit/useractivity.log", "audit.log.useractivity")
+	return err_chan
 }
 
 func messageProcessingLoop(uri, queueName string, autoDelete bool, consumerTag string) error {
@@ -277,7 +336,7 @@ func messageProcessingLoop(uri, queueName string, autoDelete bool, consumerTag s
 	c.conn.NotifyClose(connection_error)
 
 	numProcessors := runtime.NumCPU() * 2
-	log.Printf("Starting %d message processors\n", numProcessors)
+	log.Infof("Starting %d message processors\n", numProcessors)
 
 	wg.Add(numProcessors)
 	for i := 0; i < numProcessors; i++ {
@@ -287,11 +346,11 @@ func messageProcessingLoop(uri, queueName string, autoDelete bool, consumerTag s
 	for {
 		select {
 		case output_error := <-output_errors:
-			log.Printf("ERROR during output: %s", output_error.Error())
+			log.Errorf("ERROR during output: %s", output_error.Error())
 
 			// hack to exit if the error happens while we are writing to a file
-			if config.OutputType == FileOutputType {
-				log.Println("File output error; exiting immediately.")
+			if config.OutputType == FileOutputType || config.OutputType == SplunkOutputType || config.OutputType == HttpOutputType {
+				log.Error("File output error; exiting immediately.")
 				c.Shutdown()
 				wg.Wait()
 				os.Exit(1)
@@ -301,15 +360,15 @@ func messageProcessingLoop(uri, queueName string, autoDelete bool, consumerTag s
 			status.LastConnectError = close_error.Error()
 			status.ErrorTime = time.Now()
 
-			log.Printf("Connection closed: %s", close_error.Error())
-			log.Println("Waiting for all workers to exit")
+			log.Errorf("Connection closed: %s", close_error.Error())
+			log.Info("Waiting for all workers to exit")
 			wg.Wait()
-			log.Println("All workers have exited")
+			log.Info("All workers have exited")
 
 			return close_error
 		}
 	}
-	log.Println("Loop exited for unknown reason")
+	log.Info("Loop exited for unknown reason")
 	c.Shutdown()
 	wg.Wait()
 
@@ -318,7 +377,7 @@ func messageProcessingLoop(uri, queueName string, autoDelete bool, consumerTag s
 
 func startOutputs() error {
 	// Configure the specific output.
-	// Valid options are: 'udp', 'tcp', 'file', 's3', 'syslog'
+	// Valid options are: 'udp', 'tcp', 'file', 's3', 'syslog' ,"http",'splunk'
 	var outputHandler OutputHandler
 
 	parameters := config.OutputParameters
@@ -338,6 +397,8 @@ func startOutputs() error {
 		outputHandler = &SyslogOutput{}
 	case HttpOutputType:
 		outputHandler = &BundledOutput{behavior: &HttpBehavior{}}
+	case SplunkOutputType:
+		outputHandler = &BundledOutput{behavior: &SplunkBehavior{}}
 	case KafkaOutputType:
 		outputHandler = &KafkaOutput{}
 	default:
@@ -371,12 +432,14 @@ func startOutputs() error {
 			ret["type"] = "s3"
 		case HttpOutputType:
 			ret["type"] = "http"
+		case SplunkOutputType:
+			ret["type"] = "splunk"
 		}
 
 		return ret
 	}))
 
-	log.Printf("Initialized output: %s\n", outputHandler.String())
+	log.Infof("Initialized output: %s\n", outputHandler.String())
 	return outputHandler.Go(results, output_errors)
 }
 
@@ -387,7 +450,6 @@ func main() {
 	}
 
 	configLocation := "/etc/cb/integrations/event-forwarder/cb-event-forwarder.conf"
-
 
 	if flag.NArg() > 0 {
 		configLocation = flag.Arg(0)
@@ -404,7 +466,7 @@ func main() {
 		if err != nil {
 			log.Fatal("Could not get cb version: " + err.Error())
 		} else {
-			log.Printf("Enabling feed post-processing for server %s version %s.", config.CbServerURL, apiVersion)
+			log.Infof("Enabling feed post-processing for server %s version %s.", config.CbServerURL, apiVersion)
 		}
 	}
 
@@ -431,7 +493,7 @@ func main() {
 	exportedVersion := expvar.NewString("version")
 	if *debug {
 		exportedVersion.Set(version + " (debugging on)")
-		log.Printf("*** Debugging enabled: messages may be sent via http://%s:%d/debug/sendmessage ***",
+		log.Debugf("*** Debugging enabled: messages may be sent via http://%s:%d/debug/sendmessage ***",
 			hostname, config.HTTPServerPort)
 	} else {
 		exportedVersion.Set(version)
@@ -440,11 +502,11 @@ func main() {
 
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			log.Printf("Interface address %s", ipnet.IP.String())
+			log.Infof("Interface address %s", ipnet.IP.String())
 		}
 	}
 
-	log.Printf("Configured to capture events: %v", config.EventTypes)
+	log.Infof("Configured to capture events: %v", config.EventTypes)
 	if err := startOutputs(); err != nil {
 		log.Fatalf("Could not startOutputs: %s", err)
 	}
@@ -461,7 +523,7 @@ func main() {
 			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				http.Redirect(w, r, "/static/", 301)
 			})
-			log.Printf("Diagnostics available via HTTP at http://%s:%d/", hostname, config.HTTPServerPort)
+			log.Infof("Diagnostics available via HTTP at http://%s:%d/", hostname, config.HTTPServerPort)
 			break
 		}
 	}
@@ -486,7 +548,7 @@ func main() {
 					_, _ = w.Write(errMsg)
 					return
 				}
-				log.Printf("Sent test message: %s\n", string(msg))
+				log.Errorf("Sent test message: %s\n", string(msg))
 			} else {
 				err = outputMessage(map[string]interface{}{
 					"type":    "debug.message",
@@ -497,7 +559,7 @@ func main() {
 					_, _ = w.Write(errMsg)
 					return
 				}
-				log.Println("Sent test debugging message")
+				log.Info("Sent test debugging message")
 			}
 
 			errMsg, _ := json.Marshal(map[string]string{"status": "success"})
@@ -508,7 +570,7 @@ func main() {
 	go http.ListenAndServe(fmt.Sprintf(":%d", config.HTTPServerPort), nil)
 
 	numConsumers := 1
-	if runtime.NumCPU() > 1 {
+	if runtime.NumCPU() > 1 && config.OutputType == KafkaOutputType {
 		numConsumers = runtime.NumCPU() / 2
 	}
 
@@ -520,8 +582,7 @@ func main() {
 
 	for i := 0; i < numConsumers; i++ {
 		go func(consumerNumber int) {
-			log.Printf("Starting AMQP loop %d to %s on queue %s", consumerNumber, config.AMQPURL(), queueName)
-
+			log.Infof("Starting AMQP loop %d to %s on queue %s", consumerNumber, config.AMQPURL(), queueName)
 			for {
 				err := messageProcessingLoop(config.AMQPURL(), queueName, config.AMQPAutoDeleteQueue, fmt.Sprintf("go-event-consumer-%d", consumerNumber))
 				log.Printf("AMQP loop %d exited: %s. Sleeping for 30 seconds then retrying.", consumerNumber, err)
@@ -529,7 +590,26 @@ func main() {
 			}
 		}(i)
 	}
+
+	if config.AuditLog == true {
+		log.Info("starting log file processing loop")
+		go func() {
+			err_chan := logFileProcessingLoop()
+			for {
+				select {
+				case err := <-err_chan:
+					log.Infof("%v", err)
+				}
+			}
+		}()
+
+	} else {
+		log.Info("Not starting file processing loop")
+	}
+
 	for {
 		time.Sleep(30 * time.Second)
 	}
+
+	log.Info("cb-event-forwarder exiting")
 }

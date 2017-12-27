@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	log "github.com/sirupsen/logrus"
+	"gopkg.in/h2non/filetype.v1"
 	"net"
+	"os"
+	"path/filepath"
 )
 
 /*
@@ -39,15 +43,10 @@ func MakeGUID(sensor_id, pid int32, create_time int64) string {
 }
 
 func GetIPv4Address(addr uint32) string {
-	buf := bytes.Buffer{}
+	buf := make([]byte, 4)
 
-	if err := binary.Write(&buf, binary.LittleEndian, addr); err != nil {
-		return "<unknown>"
-	}
-
-	b := buf.Bytes()
-
-	return net.IPv4(b[0], b[1], b[2], b[3]).String()
+	binary.LittleEndian.PutUint32(buf, addr)
+	return net.IP(buf).String()
 }
 
 /*
@@ -71,6 +70,13 @@ func ntohs(p uint16) uint16 {
 }
 
 func GetMd5Hexdigest(src []byte) string {
+	if len(src) != 16 && len(src) != 0 {
+		log.WithFields(log.Fields{"Md5Length": len(src), "Md5": fmt.Sprintf("%X", src)}).Debug("Invalid expected length of Md5")
+	}
+	return fmt.Sprintf("%X", src)
+}
+
+func GetSha256Hexdigest(src []byte) string {
 	return fmt.Sprintf("%X", src)
 }
 
@@ -88,4 +94,41 @@ func FastStringConcat(substrings ...string) string {
 		buffer.WriteString(substring)
 	}
 	return buffer.String()
+}
+
+func IsGzip(fp *os.File) bool {
+	stats, stats_err := fp.Stat()
+	if stats_err == nil {
+		log.Debugf("File stats = %s:%d:%v", stats.Name(), stats.Size(), stats.Mode())
+	}
+	// decompress file from disk if it's compressed
+	header := make([]byte, 261)
+
+	fp.Seek(0, os.SEEK_SET)
+
+	_, err := fp.Read(header)
+	if err != nil {
+		log.Debugf("Could not read header information for file: %s", err.Error())
+		return false
+	}
+
+	fp.Seek(0, os.SEEK_SET)
+
+	if filetype.IsMIME(header, "application/gzip") {
+		return true
+	} else {
+		return false
+	}
+}
+
+func MoveFileToDebug(name string) {
+	if config.DebugFlag {
+		baseName := filepath.Base(name)
+		dest := filepath.Join(config.DebugStore, baseName)
+		log.Debugf("MoveFileToDebug mv %s %s", name, dest)
+		err := os.Rename(name, dest)
+		if err != nil {
+			log.Debugf("MoveFileToDebug mv error: %v", err)
+		}
+	}
 }

@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"text/template"
@@ -67,57 +64,6 @@ func (this *HttpBehavior) Key() string {
 	return this.dest
 }
 
-type UploadData struct {
-	FileName string
-	FileSize int64
-	Events   chan UploadEvent
-}
-
-type UploadEvent struct {
-	EventSeq  int64
-	EventText string
-}
-
-func (this *HttpBehavior) readFromFile(fp *os.File, events chan<- UploadEvent) {
-	defer close(events)
-
-	scanner := bufio.NewScanner(fp)
-	var i int64
-
-	for scanner.Scan() {
-		var b bytes.Buffer
-		var err error
-		eventText := scanner.Text()
-
-		if len(eventText) == 0 {
-			// skip empty lines
-			continue
-		}
-
-		if config.CommaSeparateEvents {
-			if i == 0 {
-				err = this.firstEventTemplate.Execute(&b, eventText)
-			} else {
-				err = this.subsequentEventTemplate.Execute(&b, eventText)
-			}
-			eventText = b.String()
-		} else {
-			eventText = eventText + "\n"
-		}
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		events <- UploadEvent{EventText: eventText, EventSeq: i}
-		i += 1
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
-}
-
 /* This function does a POST of the given event to this.dest. UploadBehavior is called from within its own
    goroutine so we can do some expensive work here. */
 func (this *HttpBehavior) Upload(fileName string, fp *os.File) UploadStatus {
@@ -140,7 +86,7 @@ func (this *HttpBehavior) Upload(fileName string, fp *os.File) UploadStatus {
 		defer writer.Close()
 
 		// spawn goroutine to read from the file
-		go this.readFromFile(fp, uploadData.Events)
+		go convertFileIntoTemplate(fp, uploadData.Events, this.firstEventTemplate, this.subsequentEventTemplate)
 
 		this.httpPostTemplate.Execute(writer, uploadData)
 	}()
@@ -163,7 +109,7 @@ func (this *HttpBehavior) Upload(fileName string, fp *os.File) UploadStatus {
 		errorData := resp.Status + "\n" + string(body)
 
 		return UploadStatus{fileName: fileName,
-			result: fmt.Errorf("HTTP request failed: Error code %s", errorData)}
+			result: fmt.Errorf("HTTP request failed: Error code %s", errorData), status: resp.StatusCode}
 	}
-	return UploadStatus{fileName: fileName, result: err}
+	return UploadStatus{fileName: fileName, result: err, status: 200}
 }

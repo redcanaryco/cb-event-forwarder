@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,6 +15,7 @@ import (
 type UploadStatus struct {
 	fileName string
 	result   error
+	status   int
 }
 
 type BundledOutput struct {
@@ -90,7 +91,7 @@ func (o *BundledOutput) uploadOne(fileName string) {
 		// only remove the old file if there was no error
 		err = os.Remove(fileName)
 		if err != nil {
-			log.Printf("error removing %s: %s", fileName, err.Error())
+			log.Infof("error removing %s: %s", fileName, err.Error())
 		}
 	}
 }
@@ -184,7 +185,7 @@ func (o *BundledOutput) rollOver() error {
 		return nil
 	}
 
-	fn, err := o.tempFileOutput.rollOverFile("2006-01-02T15:04:05")
+	fn, err := o.tempFileOutput.rollOverFile("2006-01-02T15:04:05.000")
 
 	if err != nil {
 		return err
@@ -222,13 +223,19 @@ func (o *BundledOutput) Statistics() interface{} {
 func (o *BundledOutput) Go(messages <-chan string, errorChan chan<- error) error {
 	go func() {
 		refreshTicker := time.NewTicker(1 * time.Second)
-		defer refreshTicker.Stop()
-		defer o.tempFileOutput.close()
 
 		hup := make(chan os.Signal, 1)
 		signal.Notify(hup, syscall.SIGHUP)
 
+		term := make(chan os.Signal, 1)
+		signal.Notify(term, syscall.SIGTERM)
+		signal.Notify(term, syscall.SIGINT)
+
+		defer refreshTicker.Stop()
+		defer o.tempFileOutput.closeFile()
+		defer o.tempFileOutput.flushOutput(true)
 		defer signal.Stop(hup)
+		defer signal.Stop(term)
 
 		for {
 			select {
@@ -257,23 +264,40 @@ func (o *BundledOutput) Go(messages <-chan string, errorChan chan<- error) error
 					o.uploadErrors += 1
 					o.lastUploadError = fileResult.result.Error()
 					o.lastUploadErrorTime = time.Now()
+					//Handle 400s - lets stop processing the file and move it to debug zone
+					if fileResult.status != 400 {
+						// our default behavior is to try and upload the file next time around...
+						o.filesToUpload = append(o.filesToUpload, fileResult.fileName)
+					} else {
+						// if we receive HTTP 400 error code (Bad Request), we assume the error is "permanent" and
+						//  due not to some transient issue on the server side (overloading, service not available, etc)
+						//  and instead an issue with the data we've sent. So move the file to the debug area and
+						//  don't try to upload it again.
+						MoveFileToDebug(fileResult.fileName)
+					}
 
-					o.filesToUpload = append(o.filesToUpload, fileResult.fileName)
-
-					log.Printf("Error uploading file %s: %s", fileResult.fileName, fileResult.result)
+					log.Infof("Error uploading file %s: %s", fileResult.fileName, fileResult.result)
 				} else {
 					o.successfulUploads += 1
 					o.lastSuccessfulUpload = time.Now()
-					log.Printf("Successfully uploaded file %s to %s.", fileResult.fileName, o.behavior.String())
+					log.Infof("Successfully uploaded file %s to %s.", fileResult.fileName, o.behavior.String())
 				}
 
 			case <-hup:
 				// flush to S3 immediately
-				log.Printf("Received SIGHUP, sending data to %s immediately.", o.behavior.String())
+				log.Infof("Received SIGHUP, sending data to %s immediately.", o.behavior.String())
 				if err := o.rollOver(); err != nil {
 					errorChan <- err
 					return
 				}
+			case <-term:
+				// handle exit gracefully
+				errorChan <- errors.New("SIGTERM received")
+				o.tempFileOutput.flushOutput(true)
+				o.tempFileOutput.closeFile()
+				refreshTicker.Stop()
+				log.Info("Received SIGTERM. Exiting")
+				return
 			}
 		}
 	}()

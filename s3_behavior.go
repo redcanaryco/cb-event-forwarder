@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	log "github.com/sirupsen/logrus"
 )
 
 type S3Behavior struct {
@@ -90,6 +91,8 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 
 	fp.Close()
 
+	log.WithFields(log.Fields{"Filename": fileName, "Bucket": &o.bucketName}).Debug("Uploading File to Bucket")
+
 	return UploadStatus{fileName: fileName, result: err}
 }
 
@@ -132,7 +135,8 @@ func (o *S3Behavior) Initialize(connString string) error {
 
 	_, err := o.out.HeadBucket(&s3.HeadBucketInput{Bucket: &o.bucketName})
 	if err != nil {
-		return errors.New(fmt.Sprintf("Could not open bucket %s: %s", o.bucketName, err))
+		// converting this to a warning, as you could have buckets with PutObject rights but not ListBucket
+		log.Infof("Could not open bucket %s: %s", o.bucketName, err)
 	}
 
 	return nil

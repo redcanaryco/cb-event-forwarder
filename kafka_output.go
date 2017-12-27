@@ -1,33 +1,33 @@
 package main
 
 import (
-	"time"
-	"sync"
 	"encoding/json"
+	"sync"
+	"time"
 
+	"fmt"
 	"github.com/Shopify/sarama"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
-	"syscall"
 	"strings"
-	"fmt"
 	"sync/atomic"
+	"syscall"
 )
 
 type KafkaOutput struct {
-	brokers     			[]string
-	topicSuffix			string
-	producer   			sarama.AsyncProducer
-	droppedEventCount           	int64
-	eventSentCount			int64
+	brokers           []string
+	topicSuffix       string
+	producer          sarama.AsyncProducer
+	droppedEventCount int64
+	eventSentCount    int64
 
 	sync.RWMutex
 }
 
 type KafkaStatistics struct {
-	DroppedEventCount  int64     `json:"dropped_event_count"`
-	EventSentCount     int64     `json:"event_sent_count"`
+	DroppedEventCount int64 `json:"dropped_event_count"`
+	EventSentCount    int64 `json:"event_sent_count"`
 }
 
 func (o *KafkaOutput) Initialize(unused string) error {
@@ -78,10 +78,9 @@ func (o *KafkaOutput) Go(messages <-chan string, errorChan chan<- error) error {
 					topicString = strings.Replace(topicString, "ingress.event.", "", -1)
 					topicString += o.topicSuffix
 
-
 					o.output(topicString, message)
 				} else {
-					log.Printf("ERROR: Topic was not a string")
+					log.Info("ERROR: Topic was not a string")
 				}
 			}
 		}
@@ -96,7 +95,7 @@ func (o *KafkaOutput) Go(messages <-chan string, errorChan chan<- error) error {
 
 	go func() {
 		for err := range o.producer.Errors() {
-			log.Println(err)
+			log.Info(err)
 			atomic.AddInt64(&o.droppedEventCount, 1)
 			errorChan <- err
 		}
@@ -129,7 +128,7 @@ func (o *KafkaOutput) Key() string {
 func (o *KafkaOutput) output(topic string, m string) {
 	o.producer.Input() <- &sarama.ProducerMessage{
 		Topic: topic,
-		Key: nil,
+		Key:   nil,
 		Value: sarama.StringEncoder(m),
 	}
 }
