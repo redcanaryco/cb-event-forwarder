@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
+	"net"
 	"reflect"
 	"strconv"
 	"strings"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/carbonblack/cb-event-forwarder/sensor_events"
 	"github.com/golang/protobuf/proto"
+	log "github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 )
 
@@ -70,7 +71,7 @@ func ProcessProtobufBundle(routingKey string, body []byte, headers amqp.Table) (
 
 		msg, err := ProcessProtobufMessage(routingKey, body[bytesRead:bytesRead+messageLength], headers)
 		if err != nil {
-			log.Printf("Error in ProcessProtobufBundle for event index %d: %s. Continuing to next message.", i, err.Error())
+			log.Infof("Error in ProcessProtobufBundle for event index %d: %s. Continuing to next message.", i, err.Error())
 		} else if msg != nil {
 			msgs = append(msgs, msg)
 		}
@@ -106,20 +107,20 @@ func ProcessRawZipBundle(routingKey string, body []byte, headers amqp.Table) ([]
 	for i, zf := range zipReader.File {
 		src, err := zf.Open()
 		if err != nil {
-			log.Printf("Error opening raw sensor event zip file content: %s. Continuing.", err.Error())
+			log.Errorf("Error opening raw sensor event zip file content: %s. Continuing.", err.Error())
 			continue
 		}
 
 		unzippedFile, err := ioutil.ReadAll(src)
 		src.Close()
 		if err != nil {
-			log.Printf("Error opening raw sensor event file id %d from package: %s", i, err.Error())
+			log.Errorf("Error opening raw sensor event file id %d from package: %s", i, err.Error())
 			continue
 		}
 
 		newMsgs, err := ProcessProtobufBundle(routingKey, unzippedFile, headers)
 		if err != nil {
-			log.Printf("Errors above from processing zip filename %s", zf.Name)
+			log.Errorf("Errors above from processing zip filename %s", zf.Name)
 		}
 		msgs = append(msgs, newMsgs...)
 	}
@@ -222,34 +223,97 @@ func ProcessProtobufMessage(routingKey string, body []byte, headers amqp.Table) 
 	// is the message from an endpoint event process?
 	eventMsg := true
 
+	// select only one of network or networkv2
+	gotNetworkV2Message := false
+	gotNetblockV2Message := false
+
 	switch {
 	case cbMessage.Process != nil:
-		WriteProcessMessage(inmsg, outmsg)
+		if _, ok := config.EventMap["ingress.event.process"]; ok {
+			WriteProcessMessage(inmsg, outmsg)
+		} else if _, ok := config.EventMap["ingress.event.procstart"]; ok {
+			WriteProcessMessage(inmsg, outmsg)
+		} else if _, ok := config.EventMap["ingress.event.procend"]; ok {
+			WriteProcessMessage(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
 	case cbMessage.Modload != nil:
-		WriteModloadMessage(inmsg, outmsg)
+		if _, ok := config.EventMap["ingress.event.moduleload"]; ok {
+			WriteModloadMessage(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
 	case cbMessage.Filemod != nil:
-		WriteFilemodMessage(inmsg, outmsg)
-	case cbMessage.Network != nil:
-		WriteNetconnMessage(inmsg, outmsg)
+		if _, ok := config.EventMap["ingress.event.filemod"]; ok {
+			WriteFilemodMessage(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
+
+	case cbMessage.Networkv2 != nil:
+		gotNetworkV2Message = true
+		if _, ok := config.EventMap["ingress.event.netconn"]; ok {
+			WriteNetconn2Message(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
+	case cbMessage.Network != nil && !gotNetworkV2Message:
+		if _, ok := config.EventMap["ingress.event.netconn"]; ok {
+			WriteNetconnMessage(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
 	case cbMessage.Regmod != nil:
-		WriteRegmodMessage(inmsg, outmsg)
+		if _, ok := config.EventMap["ingress.event.regmod"]; ok {
+			WriteRegmodMessage(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
 	case cbMessage.Childproc != nil:
-		WriteChildprocMessage(inmsg, outmsg)
+		if _, ok := config.EventMap["ingress.event.childproc"]; ok {
+			WriteChildprocMessage(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
 	case cbMessage.Crossproc != nil:
-		WriteCrossProcMessage(inmsg, outmsg)
+		if _, ok := config.EventMap["ingress.event.crossprocopen"]; ok {
+			WriteCrossProcMessage(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
 	case cbMessage.Emet != nil:
-		WriteEmetEvent(inmsg, outmsg)
-	case cbMessage.NetconnBlocked != nil:
+		if _, ok := config.EventMap["ingress.event.emetmitigation"]; ok {
+			WriteEmetEvent(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
+	case cbMessage.NetconnBlockedv2 != nil:
+		gotNetblockV2Message = true
+		WriteNetconn2BlockMessage(inmsg, outmsg)
+	case cbMessage.NetconnBlocked != nil && !gotNetblockV2Message:
 		WriteNetconnBlockedMessage(inmsg, outmsg)
 	case cbMessage.TamperAlert != nil:
-		eventMsg = false
-		WriteTamperAlertMsg(inmsg, outmsg)
+		if _, ok := config.EventMap["ingress.event.tamper"]; ok {
+			eventMsg = false
+			WriteTamperAlertMsg(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
 	case cbMessage.Blocked != nil:
-		eventMsg = false
-		WriteProcessBlockedMsg(inmsg, outmsg)
+		if _, ok := config.EventMap["ingress.event.processblock"]; ok {
+			eventMsg = false
+			WriteProcessBlockedMsg(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
 	case cbMessage.Module != nil:
-		eventMsg = false
-		WriteModinfoMessage(inmsg, outmsg)
+		if _, ok := config.EventMap["ingress.event.module"]; ok {
+			eventMsg = false
+			WriteModinfoMessage(inmsg, outmsg)
+		} else {
+			return nil, nil
+		}
 	default:
 		if len(routingKey) > 0 {
 			return nil, errors.New(fmt.Sprintf("Unknown event type encountered, routing key was: %s", routingKey))
@@ -272,6 +336,9 @@ func ProcessProtobufMessage(routingKey string, body []byte, headers amqp.Table) 
 		}
 		if _, ok := outmsg["md5"]; !ok {
 			outmsg["md5"] = GetMd5Hexdigest(inmsg.OriginalMessage.Header.GetProcessMd5())
+		}
+		if _, ok := outmsg["sha256"]; !ok {
+			outmsg["sha256"] = GetSha256Hexdigest(inmsg.OriginalMessage.Header.GetProcessSha256())
 		}
 
 		// add link to process in the Cb UI if the Cb hostname is set
@@ -302,6 +369,9 @@ func WriteProcessMessage(message *ConvertedCbMessage, kv map[string]interface{})
 		if message.OriginalMessage.Process.Md5Hash != nil {
 			kv["md5"] = GetMd5Hexdigest(message.OriginalMessage.Process.GetMd5Hash())
 		}
+		if message.OriginalMessage.Process.Sha256Hash != nil {
+			kv["sha256"] = GetSha256Hexdigest(message.OriginalMessage.Process.GetSha256Hash())
+		}
 	} else {
 		kv["event_type"] = "procend"
 		kv["type"] = "ingress.event.procend"
@@ -316,6 +386,10 @@ func WriteProcessMessage(message *ConvertedCbMessage, kv map[string]interface{})
 
 	if message.OriginalMessage.Process.ParentMd5 != nil {
 		kv["parent_md5"] = GetMd5Hexdigest(om.Process.GetParentMd5())
+	}
+
+	if message.OriginalMessage.Process.ParentSha256 != nil {
+		kv["parent_sha256"] = GetSha256Hexdigest(om.Process.GetSha256Hash())
 	}
 
 	kv["expect_followon_w_md5"] = om.Process.GetExpectFollowonWMd5()
@@ -340,6 +414,7 @@ func WriteProcessMessage(message *ConvertedCbMessage, kv map[string]interface{})
 	if message.OriginalMessage.Process.Uid != nil {
 		kv["uid"] = message.OriginalMessage.Process.GetUid()
 	}
+
 }
 
 func WriteModloadMessage(message *ConvertedCbMessage, kv map[string]interface{}) {
@@ -349,6 +424,7 @@ func WriteModloadMessage(message *ConvertedCbMessage, kv map[string]interface{})
 	file_path, _ := message.getStringByGuid(message.OriginalMessage.Header.GetFilepathStringGuid())
 	kv["path"] = file_path
 	kv["md5"] = GetMd5Hexdigest(message.OriginalMessage.Modload.GetMd5Hash())
+	kv["sha256"] = GetSha256Hexdigest(message.OriginalMessage.Modload.GetSha256Hash())
 
 }
 
@@ -384,6 +460,9 @@ func WriteFilemodMessage(message *ConvertedCbMessage, kv map[string]interface{})
 	if message.OriginalMessage.Filemod.Md5Hash != nil {
 		kv["file_md5"] = GetMd5Hexdigest(message.OriginalMessage.Filemod.GetMd5Hash())
 	}
+	if message.OriginalMessage.Filemod.Sha256Hash != nil {
+		kv["file_sha256"] = GetSha256Hexdigest(message.OriginalMessage.Filemod.GetSha256Hash())
+	}
 }
 
 func WriteChildprocMessage(message *ConvertedCbMessage, kv map[string]interface{}) {
@@ -416,6 +495,7 @@ func WriteChildprocMessage(message *ConvertedCbMessage, kv map[string]interface{
 	kv["path"] = om.Childproc.GetPath()
 
 	kv["md5"] = GetMd5Hexdigest(message.OriginalMessage.Childproc.GetMd5Hash())
+	kv["sha256"] = GetSha256Hexdigest(message.OriginalMessage.Childproc.GetSha256Hash())
 }
 
 func regmodAction(a sensor_events.CbRegModMsg_CbRegModAction) string {
@@ -474,11 +554,61 @@ func WriteNetconnMessage(message *ConvertedCbMessage, kv map[string]interface{})
 	}
 }
 
+func GetIPAddress(ipAddress *sensor_events.CbIpAddr) string {
+	if ipAddress.GetBIsIpv6() {
+		b := make([]byte, 16)
+		binary.LittleEndian.PutUint64(b[:8], ipAddress.GetIpv6High())
+		binary.LittleEndian.PutUint64(b[8:], ipAddress.GetIpv6Low())
+
+		ipString := net.IP(b).String()
+		if ipAddress.Ipv6Scope != nil {
+			return fmt.Sprintf("%s%%%s", ipString, ipAddress.GetIpv6Scope())
+		} else {
+			return ipString
+		}
+	} else {
+		return GetIPv4Address(ipAddress.GetIpv4Address())
+	}
+}
+
+func WriteNetconn2Message(message *ConvertedCbMessage, kv map[string]interface{}) {
+	kv["event_type"] = "netconn"
+	kv["type"] = "ingress.event.netconn"
+
+	kv["domain"] = GetUnicodeFromUTF8(message.OriginalMessage.Networkv2.GetUtf8Netpath())
+	kv["protocol"] = int32(message.OriginalMessage.Networkv2.GetProtocol())
+
+	if message.OriginalMessage.Networkv2.GetOutbound() {
+		kv["direction"] = "outbound"
+	} else {
+		kv["direction"] = "inbound"
+	}
+
+	// we are deprecating the "ipv4" and "port" keys here, since this message is guaranteed to have remote &
+	// local ip and port numbers.
+
+	if message.OriginalMessage.Networkv2.GetProxyConnection() {
+		kv["proxy"] = true
+		kv["proxy_ip"] = GetIPAddress(message.OriginalMessage.Networkv2.GetProxyIpAddress())
+		kv["proxy_port"] = ntohs(uint16(message.OriginalMessage.Networkv2.GetProxyPort()))
+		kv["proxy_domain"] = message.OriginalMessage.Networkv2.GetProxyNetPath()
+	} else {
+		kv["proxy"] = false
+	}
+
+	kv["remote_ip"] = GetIPAddress(message.OriginalMessage.Networkv2.GetRemoteIpAddress())
+	kv["remote_port"] = ntohs(uint16(message.OriginalMessage.Networkv2.GetRemotePort()))
+
+	kv["local_ip"] = GetIPAddress(message.OriginalMessage.Networkv2.GetLocalIpAddress())
+	kv["local_port"] = ntohs(uint16(message.OriginalMessage.Networkv2.GetLocalPort()))
+}
+
 func WriteModinfoMessage(message *ConvertedCbMessage, kv map[string]interface{}) {
 	kv["event_type"] = "binary_info"
 	kv["type"] = "ingress.event.module"
 
 	kv["md5"] = strings.ToUpper(string(message.OriginalMessage.Module.GetMd5()))
+	kv["sha256"] = strings.ToUpper(string(message.OriginalMessage.Module.GetSha256()))
 	kv["size"] = message.OriginalMessage.Module.GetOriginalModuleLength()
 
 	digsigResult := make(map[string]interface{})
@@ -570,6 +700,7 @@ func WriteCrossProcMessage(message *ConvertedCbMessage, kv map[string]interface{
 		kv["target_pid"] = open.GetTargetPid()
 		kv["target_create_time"] = open.GetTargetProcCreateTime()
 		kv["target_md5"] = GetMd5Hexdigest(open.GetTargetProcMd5())
+		kv["target_sha256"] = GetSha256Hexdigest(open.GetTargetProcSha256())
 		kv["target_path"] = open.GetTargetProcPath()
 
 		pid32 := int32(open.GetTargetPid() & 0xffffffff)
@@ -582,6 +713,7 @@ func WriteCrossProcMessage(message *ConvertedCbMessage, kv map[string]interface{
 		kv["target_pid"] = rt.GetRemoteProcPid()
 		kv["target_create_time"] = rt.GetRemoteProcCreateTime()
 		kv["target_md5"] = GetMd5Hexdigest(rt.GetRemoteProcMd5())
+		kv["target_sha256"] = GetSha256Hexdigest(rt.GetRemoteProcSha256())
 		kv["target_path"] = rt.GetRemoteProcPath()
 
 		kv["target_process_guid"] = MakeGUID(om.Env.Endpoint.GetSensorId(), int32(rt.GetRemoteProcPid()), int64(rt.GetRemoteProcCreateTime()))
@@ -712,5 +844,38 @@ func WriteNetconnBlockedMessage(message *ConvertedCbMessage, kv map[string]inter
 	if blocked.LocalIpAddress != nil {
 		kv["local_ip"] = GetIPv4Address(blocked.GetLocalIpAddress())
 		kv["local_port"] = ntohs(uint16(blocked.GetLocalPort()))
+	}
+}
+
+func WriteNetconn2BlockMessage(message *ConvertedCbMessage, kv map[string]interface{}) {
+	kv["event_type"] = "blocked_netconn"
+	// TODO: need ingress event type for netconn blocks
+
+	blocked := message.OriginalMessage.NetconnBlockedv2
+
+	kv["domain"] = GetUnicodeFromUTF8(blocked.GetUtf8Netpath())
+	// we are deprecating the "ipv4" and "port" keys here, since this message is guaranteed to have remote &
+	// local ip and port numbers.
+
+	kv["protocol"] = int32(blocked.GetProtocol())
+
+	if blocked.GetOutbound() {
+		kv["direction"] = "outbound"
+	} else {
+		kv["direction"] = "inbound"
+	}
+	kv["remote_ip"] = GetIPAddress(blocked.GetRemoteIpAddress())
+	kv["remote_port"] = ntohs(uint16(blocked.GetRemotePort()))
+
+	kv["local_ip"] = GetIPAddress(blocked.GetLocalIpAddress())
+	kv["local_port"] = ntohs(uint16(blocked.GetLocalPort()))
+
+	if blocked.GetProxyConnection() {
+		kv["proxy"] = true
+		kv["proxy_ip"] = GetIPAddress(blocked.GetProxyIpAddress())
+		kv["proxy_port"] = ntohs(uint16(blocked.GetProxyPort()))
+		kv["proxy_domain"] = blocked.GetProxyNetPath()
+	} else {
+		kv["proxy"] = false
 	}
 }

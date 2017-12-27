@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"time"
-
 	"zvelo.io/ttlru"
 )
 
@@ -71,7 +70,7 @@ func GetCb(route string) ([]byte, error) {
 	}
 
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: !config.CbAPIVerifySSL},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !config.CbAPIVerifySSL, MinVersion: tls.VersionTLS12},
 		Proxy:           proxyRequest,
 	}
 
@@ -138,4 +137,41 @@ func GetReportTitle(FeedId int, ReportId string) (string, error) {
 
 		return threatReport.Title, nil
 	}
+}
+
+func GetReport(FeedId int, ReportId string) (string, int, error) {
+
+	threatReport := ThreatReport{}
+
+	key := strconv.Itoa(FeedId) + "|" + ReportId
+
+	raw_threat_report_p, cachePresent := FeedCache.Get(key)
+
+	if cachePresent {
+		if raw_threat_report_p != nil {
+			threat_report_p := (raw_threat_report_p).(*ThreatReport)
+			threat_report := *threat_report_p
+			reportTitle := threat_report.Title
+			reportScore := threat_report.Score
+			return reportTitle, reportScore, nil
+		}
+
+	}
+	//implicit ELSE
+	body, err := GetCb(fmt.Sprintf("api/v1/feed/%d/report/%s", FeedId, ReportId))
+
+	if err != nil {
+		return "", 0, err
+	}
+
+	err = json.Unmarshal(body, &threatReport)
+
+	if err != nil {
+		return "", 0, err
+	}
+
+	FeedCache.Set(key, &threatReport)
+
+	return threatReport.Title, threatReport.Score, nil
+
 }

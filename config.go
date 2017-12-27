@@ -7,12 +7,12 @@ import (
 	_ "expvar"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/vaughan0/go-ini"
 )
 
@@ -23,6 +23,7 @@ const (
 	UDPOutputType
 	SyslogOutputType
 	HttpOutputType
+	SplunkOutputType
 	KafkaOutputType
 )
 
@@ -35,6 +36,7 @@ type Configuration struct {
 	ServerName           string
 	AMQPHostname         string
 	DebugFlag            bool
+	DebugStore           string
 	OutputType           int
 	OutputFormat         int
 	AMQPUsername         string
@@ -48,6 +50,7 @@ type Configuration struct {
 	AMQPAutoDeleteQueue  bool
 	OutputParameters     string
 	EventTypes           []string
+	EventMap             map[string]bool
 	HTTPServerPort       int
 	CbServerURL          string
 	UseRawSensorExchange bool
@@ -61,11 +64,13 @@ type Configuration struct {
 	S3VerboseKey            bool
 	S3CompressData          bool
 
-	// Syslog-specific configuration
+	// SSL/TLS-specific configuration
 	TLSClientKey  *string
 	TLSClientCert *string
 	TLSCACert     *string
 	TLSVerify     bool
+	TLSCName      *string
+	TLS12Only     bool
 
 	// HTTP-specific configuration
 	HttpAuthorizationToken *string
@@ -78,6 +83,9 @@ type Configuration struct {
 	BundleSendTimeout   time.Duration
 	BundleSizeMax       int64
 
+	// Compress data on S3 or file output types
+	FileHandlerCompressData bool
+
 	TLSConfig *tls.Config
 
 	// optional post processing of feed hits to retrieve titles
@@ -89,13 +97,16 @@ type Configuration struct {
 	// Kafka-specific configuration
 	KafkaBrokers     *string
 	KafkaTopicSuffix *string
-	// TODO: May want some more options for batch size, etc.
 
 	// Audit redis configuration
 	AuditingEnabled          bool
 	AuditRedisHost           string
 	AuditRedisDatabaseNumber int
 	AuditPipelineSize        int
+
+	//Splunkd
+	SplunkToken *string
+	AuditLog    bool
 }
 
 type ConfigurationError struct {
@@ -171,14 +182,12 @@ func (c *Configuration) parseEventTypes(input ini.File) {
 		{"events_binary_upload", []string{
 			"binarystore.#",
 		}},
+		{"events_storage_partition", []string{
+			"events.partition.#",
+		}},
 	}
 
 	for _, eventType := range eventTypes {
-		if eventType.configKey == "events_raw_sensor" && c.UseRawSensorExchange {
-			// skip the sensor event section if we're consuming from the firehose anyway
-			// we will be forwarding everything in that case
-			continue
-		}
 		val, ok := input.Get("bridge", eventType.configKey)
 		if ok {
 			val = strings.ToLower(val)
@@ -193,6 +202,16 @@ func (c *Configuration) parseEventTypes(input ini.File) {
 					c.EventTypes = append(c.EventTypes, routingKey)
 				}
 			}
+		}
+	}
+
+	c.EventMap = make(map[string]bool)
+
+	log.Info("Raw Event Filtering Configuration:")
+	for _, eventName := range c.EventTypes {
+		c.EventMap[eventName] = true
+		if strings.HasPrefix(eventName, "ingress.event.") {
+			log.Infof("%s: %t", eventName, c.EventMap[eventName])
 		}
 	}
 }
@@ -223,6 +242,7 @@ func ParseConfig(fn string) (Configuration, error) {
 	config.AMQPUsername = "cb"
 	config.HTTPServerPort = 33706
 	config.AMQPPort = 5004
+	config.DebugStore = "/tmp"
 
 	config.S3ACLPolicy = nil
 	config.S3ServerSideEncryption = nil
@@ -241,8 +261,25 @@ func ParseConfig(fn string) (Configuration, error) {
 	if ok {
 		if val == "1" {
 			config.DebugFlag = true
+			log.SetLevel(log.DebugLevel)
+
+			customFormatter := new(log.TextFormatter)
+			customFormatter.TimestampFormat = "2006-01-02 15:04:05"
+			log.SetFormatter(customFormatter)
+			customFormatter.FullTimestamp = true
+
+			log.Debug("Debugging output is set to True")
 		}
 	}
+
+	debugStore, ok := input.Get("bridge", "debug_store")
+	if ok {
+		config.DebugStore = debugStore
+	} else {
+		config.DebugStore = "/var/log/cb/integrations/cb-event-forwarder"
+	}
+
+	log.Debugf("Debug Store is %s", config.DebugStore)
 
 	val, ok = input.Get("bridge", "http_server_port")
 	if ok {
@@ -272,13 +309,13 @@ func ParseConfig(fn string) (Configuration, error) {
 		}
 	}
 
-    val, ok = input.Get("bridge", "rabbit_mq_auto_delete_queue")
-    if ok {
-        b, err := strconv.ParseBool(val)
-        if err == nil {
-            config.AMQPAutoDeleteQueue = b
-        }
-    }
+	val, ok = input.Get("bridge", "rabbit_mq_auto_delete_queue")
+	if ok {
+		b, err := strconv.ParseBool(val)
+		if err == nil {
+			config.AMQPAutoDeleteQueue = b
+		}
+	}
 
 	if len(config.AMQPUsername) == 0 || len(config.AMQPPassword) == 0 {
 		config.AMQPUsername, config.AMQPPassword, err = parseCbConf()
@@ -336,6 +373,24 @@ func ParseConfig(fn string) (Configuration, error) {
 		val = strings.ToLower(val)
 		if val == "leef" {
 			config.OutputFormat = LEEFOutputFormat
+		}
+	}
+
+	config.FileHandlerCompressData = false
+	val, ok = input.Get("bridge", "compress_data")
+	if ok {
+		b, err := strconv.ParseBool(val)
+		if err == nil {
+			config.FileHandlerCompressData = b
+		}
+	}
+
+	config.AuditLog = false
+	val, ok = input.Get("bridge", "audit_log")
+	if ok {
+		b, err := strconv.ParseBool(val)
+		if err == nil {
+			config.AuditLog = b
 		}
 	}
 
@@ -440,6 +495,36 @@ func ParseConfig(fn string) (Configuration, error) {
 			if ok {
 				config.KafkaTopicSuffix = &kafkaTopicSuffix
 			}
+		case "splunk":
+			parameterKey = "splunkout"
+			config.OutputType = SplunkOutputType
+
+			token, ok := input.Get("splunk", "hec_token")
+			if ok {
+				config.SplunkToken = &token
+			}
+
+			postTemplate, ok := input.Get("splunk", "http_post_template")
+			config.HttpPostTemplate = template.New("http_post_output")
+			if ok {
+				config.HttpPostTemplate = template.Must(config.HttpPostTemplate.Parse(postTemplate))
+			} else {
+				if config.OutputFormat == JSONOutputFormat {
+					config.HttpPostTemplate = template.Must(config.HttpPostTemplate.Parse(
+						`{{range .Events}}{"sourcetype":"bit9:carbonblack:json","event":{{.EventText}}}{{end}}`))
+				} else {
+					config.HttpPostTemplate = template.Must(config.HttpPostTemplate.Parse(`{{range .Events}}{{.EventText}}{{end}}`))
+				}
+			}
+
+			contentType, ok := input.Get("http", "content_type")
+			if ok {
+				config.HttpContentType = &contentType
+			} else {
+				jsonString := "application/json"
+				config.HttpContentType = &jsonString
+			}
+
 		default:
 			errs.addErrorString(fmt.Sprintf("Unknown output type: %s", outType))
 		}
@@ -500,10 +585,10 @@ func ParseConfig(fn string) (Configuration, error) {
 		if err == nil {
 			config.UseRawSensorExchange = boolval
 			if boolval {
-				log.Println("Configured to listen on the Carbon Black Enterprise Response raw sensor event feed.")
-				log.Println("- This will result in a *large* number of messages output via the event forwarder!")
-				log.Println("- Ensure that raw sensor events are enabled in your Cb server (master & minion) via")
-				log.Println("  the 'EnableRawSensorDataBroadcast' variable in /etc/cb/cb.conf")
+				log.Warn("Configured to listen on the Carbon Black Enterprise Response raw sensor event feed.")
+				log.Warn("- This will result in a *large* number of messages output via the event forwarder!")
+				log.Warn("- Ensure that raw sensor events are enabled in your Cb server (master & minion) via")
+				log.Warn("  the 'EnableRawSensorDataBroadcast' variable in /etc/cb/cb.conf")
 			}
 		} else {
 			errs.addErrorString("Unknown value for 'use_raw_sensor_exchange': valid values are true, false, 1, 0")
@@ -539,12 +624,35 @@ func ParseConfig(fn string) (Configuration, error) {
 		}
 	}
 
+	config.TLS12Only = true
+	tlsInsecure, ok := input.Get(outType, "insecure_tls")
+	if ok {
+		boolval, err := strconv.ParseBool(tlsInsecure)
+		if err == nil {
+			if boolval == true {
+				config.TLS12Only = false
+			}
+		} else {
+			errs.addErrorString("Unknown value for 'insecure_tls': ")
+		}
+	}
+
+	serverCName, ok := input.Get(outType, "server_cname")
+	if ok {
+		config.TLSCName = &serverCName
+	}
+
 	config.TLSConfig = configureTLS(config)
 
 	// Bundle configuration
 
 	// default to sending empty files to S3/HTTP POST endpoint
-	config.UploadEmptyFiles = true
+	if outType == "splunk" {
+		config.UploadEmptyFiles = false
+		log.Info("Splunk HEC does not accept empty files as input, ignoring upload_empty_files=true for 'splunkout'")
+	} else {
+		config.UploadEmptyFiles = true
+	}
 	sendEmptyFiles, ok := input.Get(outType, "upload_empty_files")
 	if ok {
 		boolval, err := strconv.ParseBool(sendEmptyFiles)
@@ -617,13 +725,13 @@ func configureTLS(config Configuration) *tls.Config {
 	tlsConfig := &tls.Config{}
 
 	if config.TLSVerify == false {
-		log.Println("Disabling TLS verification for remote output")
+		log.Info("Disabling TLS verification for remote output")
 		tlsConfig.InsecureSkipVerify = true
 	}
 
 	if config.TLSClientCert != nil && config.TLSClientKey != nil && len(*config.TLSClientCert) > 0 &&
 		len(*config.TLSClientKey) > 0 {
-		log.Printf("Loading client cert/key from %s & %s", *config.TLSClientCert, *config.TLSClientKey)
+		log.Infof("Loading client cert/key from %s & %s", *config.TLSClientCert, *config.TLSClientKey)
 		cert, err := tls.LoadX509KeyPair(*config.TLSClientCert, *config.TLSClientKey)
 		if err != nil {
 			log.Fatal(err)
@@ -633,7 +741,7 @@ func configureTLS(config Configuration) *tls.Config {
 
 	if config.TLSCACert != nil && len(*config.TLSCACert) > 0 {
 		// Load CA cert
-		log.Printf("Loading valid CAs from file %s", *config.TLSCACert)
+		log.Infof("Loading valid CAs from file %s", *config.TLSCACert)
 		caCert, err := ioutil.ReadFile(*config.TLSCACert)
 		if err != nil {
 			log.Fatal(err)
@@ -641,6 +749,19 @@ func configureTLS(config Configuration) *tls.Config {
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(caCert)
 		tlsConfig.RootCAs = caCertPool
+	}
+
+	if config.TLSCName != nil && len(*config.TLSCName) > 0 {
+		log.Infof("Forcing TLS Common Name check to use '%s' as the hostname", *config.TLSCName)
+		tlsConfig.ServerName = *config.TLSCName
+	}
+
+	if config.TLS12Only == true {
+		log.Info("Enforcing minimum TLS version 1.2")
+		tlsConfig.MinVersion = tls.VersionTLS12
+	} else {
+		log.Info("Relaxing minimum TLS version to 1.0")
+		tlsConfig.MinVersion = tls.VersionTLS10
 	}
 
 	return tlsConfig

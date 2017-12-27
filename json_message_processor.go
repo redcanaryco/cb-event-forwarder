@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/carbonblack/cb-event-forwarder/deepcopy"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -16,6 +16,7 @@ import (
 var feedParserRegex = regexp.MustCompile(`^feed\.(\d+)\.(.*)$`)
 
 func parseFullGuid(v string) (string, int, error) {
+
 	var segmentNumber int64
 	var err error
 
@@ -93,9 +94,10 @@ func fixupMessage(messageType string, msg map[string]interface{}) {
 				ioc_type := value.(map[string]interface{})
 				if md5value, ok := ioc_type["md5"]; ok {
 					if md5, ok := md5value.(string); ok {
-						if len(md5) == 32 {
-							ioc_type["md5"] = strings.ToUpper(md5)
+						if len(md5) != 32 && len(md5) != 0 {
+							log.WithFields(log.Fields{"MD5 Length": len(md5)}).Warn("MD5 Length was not valid")
 						}
+						ioc_type["md5"] = strings.ToUpper(md5)
 					}
 				}
 			} else {
@@ -136,6 +138,7 @@ func fixupMessage(messageType string, msg map[string]interface{}) {
 					msg["segment_id"] = fmt.Sprintf("%v", segment)
 					hasProcessGUID = true
 				}
+
 			}
 		}
 	}
@@ -216,7 +219,7 @@ func fixupMessageType(routingKey string) string {
 	}
 }
 
-func PrettyPrintMap(msg map[string]interface{}){
+func PrettyPrintMap(msg map[string]interface{}) {
 	b, err := json.MarshalIndent(msg, "", "  ")
 	if err != nil {
 		fmt.Println("error:", err)
@@ -281,26 +284,28 @@ func PostprocessJSONMessage(msg map[string]interface{}) map[string]interface{} {
 						/*
 						 * Get the report_title for this feed hit
 						 */
-						reportTitle, err := GetReportTitle(int(iFeedId), reportId.(string))
+						reportTitle, reportScore, err := GetReport(int(iFeedId), reportId.(string))
+						log.Debugf("Report title = %s , Score = %d", reportTitle, reportScore)
 						if err == nil {
 							/*
 							 * Finally save the report_title into this message
 							 */
 							msg["report_title"] = reportTitle
+							msg["report_score"] = reportScore
 							/*
-							log.Printf("report title for id %s:%s == %s\n",
-								feedId.(json.Number).String(),
-								reportId.(string),
-								reportTitle)
-								*/
+								log.Infof("report title for id %s:%s == %s\n",
+									feedId.(json.Number).String(),
+									reportId.(string),
+									reportTitle)
+							*/
 						}
 
 					} else {
-						log.Println("Unable to convert feed_id to int64 from json.Number")
+						log.Info("Unable to convert feed_id to int64 from json.Number")
 					}
 
 				} else {
-					log.Println("Feed Id was an unexpected type")
+					log.Info("Feed Id was an unexpected type")
 				}
 			}
 		}
