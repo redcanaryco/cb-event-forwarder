@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/carbonblack/cb-event-forwarder/leef"
 	"github.com/carbonblack/cb-event-forwarder/sensor_events"
+	"github.com/hpcloud/tail"
 	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
@@ -443,6 +445,33 @@ func startOutputs() error {
 	return outputHandler.Go(results, output_errors)
 }
 
+func monitorLog(logToMonitor string) {
+	fmt.Printf("monitoring log %s\n", logToMonitor)
+	t, _ := tail.TailFile(logToMonitor, tail.Config{Follow: true})
+	for line := range t.Lines {
+		var logJson map[string]interface{}
+		logJson = make(map[string]interface{})
+		logJson["message"] = line.Text
+		logJson["type"] = "log"
+		logJson["filename"] = logToMonitor
+
+		err := outputMessage(logJson)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func monitorLogs(logsToMonitor []string) {
+	for _, splitFiles := range logsToMonitor {
+		globbedFiles, _ := filepath.Glob(splitFiles)
+		for _, file := range globbedFiles {
+			go monitorLog(file)
+		}
+	}
+}
+
 func main() {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -606,6 +635,8 @@ func main() {
 	} else {
 		log.Info("Not starting file processing loop")
 	}
+
+	go monitorLogs(config.MonitoredLogs)
 
 	for {
 		time.Sleep(30 * time.Second)
