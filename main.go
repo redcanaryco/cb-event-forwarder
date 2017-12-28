@@ -54,7 +54,6 @@ var status Status
 var (
 	results       chan string
 	output_errors chan error
-	audit_logs    chan map[string]interface{}
 )
 
 /*
@@ -91,7 +90,6 @@ func init() {
 
 	results = make(chan string, 100)
 	output_errors = make(chan error)
-	audit_logs = make(chan map[string]interface{}, 100)
 
 	status.StartTime = time.Now()
 }
@@ -218,10 +216,6 @@ func outputMessage(msg map[string]interface{}) error {
 	event_uuid := uuid.NewRandom()
 	msg["event_guid"] = fmt.Sprintf("%s|%s|%s", config.ServerName, msg["process_guid"], event_uuid.String())
 
-	if config.AuditingEnabled == true {
-		msg["audit"] = "true"
-	}
-
 	var outmsg string
 
 	switch config.OutputFormat {
@@ -237,9 +231,6 @@ func outputMessage(msg map[string]interface{}) error {
 
 	if len(outmsg) > 0 && err == nil {
 		status.OutputEventCount.Add(1)
-		if config.AuditingEnabled == true {
-			audit_logs <- msg
-		}
 		results <- string(outmsg)
 
 	} else {
@@ -450,11 +441,6 @@ func main() {
 
 	if err != nil {
 		log.Fatal("Could not get IP addresses")
-	}
-
-	if config.AuditingEnabled == true {
-		auditLogger := NewAuditLogger(audit_logs)
-		auditLogger.run()
 	}
 
 	log.Printf("cb-event-forwarder version %s starting", version)
