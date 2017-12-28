@@ -565,9 +565,4 @@ func main() {
 
 	go monitorLogs(config.MonitoredLogs)
 
-	for {
-		err := messageProcessingLoop(config.AMQPURL(), queueName, "go-event-consumer")
-		log.Printf("AMQP loop exited: %s. Sleeping for 30 seconds then retrying.", err)
-		time.Sleep(30 * time.Second)
-	}
 }
