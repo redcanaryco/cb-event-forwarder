@@ -6,17 +6,18 @@ import (
 	"errors"
 	_ "expvar"
 	"fmt"
-	"github.com/vaughan0/go-ini"
 	"io/ioutil"
 	"log"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/vaughan0/go-ini"
 )
 
 const (
-	FileOutputType   = iota
+	FileOutputType = iota
 	S3OutputType
 	TCPOutputType
 	UDPOutputType
@@ -42,19 +43,22 @@ type Configuration struct {
 	AMQPTLSClientKey     string
 	AMQPTLSClientCert    string
 	AMQPTLSCACert        string
+	AMQPQueueName        string
+	AMQPAutoDeleteQueue  bool
 	OutputParameters     string
 	EventTypes           []string
 	HTTPServerPort       int
 	CbServerURL          string
 	UseRawSensorExchange bool
+	MonitoredLogs        []string
 
 	// this is a hack for S3 specific configuration
 	S3ServerSideEncryption  *string
 	S3CredentialProfileName *string
 	S3ACLPolicy             *string
 	S3ObjectPrefix          *string
-	S3IncludeDateInPrefix   bool
 	S3VerboseKey            bool
+	S3CompressData          bool
 
 	// Syslog-specific configuration
 	TLSClientKey  *string
@@ -80,6 +84,10 @@ type Configuration struct {
 	CbAPIToken                string
 	CbAPIVerifySSL            bool
 	CbAPIProxyUrl             string
+	SyslogTLSClientKey        *string
+	SyslogTLSClientCert       *string
+	SyslogTLSCACert           *string
+	SyslogTLSVerify           bool
 }
 
 type ConfigurationError struct {
@@ -181,6 +189,15 @@ func (c *Configuration) parseEventTypes(input ini.File) {
 	}
 }
 
+func (c *Configuration) parseMonitoredLogs(input ini.File) {
+	val, ok := input.Get("bridge", "monitored_logs")
+	if ok {
+		for _, monitored_log := range strings.Split(val, ",") {
+			c.MonitoredLogs = append(c.MonitoredLogs, monitored_log)
+		}
+	}
+}
+
 func ParseConfig(fn string) (Configuration, error) {
 	config := Configuration{}
 	errs := ConfigurationError{Empty: true}
@@ -202,6 +219,7 @@ func ParseConfig(fn string) (Configuration, error) {
 	config.S3ACLPolicy = nil
 	config.S3ServerSideEncryption = nil
 	config.S3CredentialProfileName = nil
+	config.AMQPAutoDeleteQueue = true
 
 	// required values
 	val, ok := input.Get("bridge", "server_name")
@@ -246,6 +264,14 @@ func ParseConfig(fn string) (Configuration, error) {
 		}
 	}
 
+	val, ok = input.Get("bridge", "rabbit_mq_auto_delete_queue")
+	if ok {
+		b, err := strconv.ParseBool(val)
+		if err == nil {
+			config.AMQPAutoDeleteQueue = b
+		}
+	}
+
 	if len(config.AMQPUsername) == 0 || len(config.AMQPPassword) == 0 {
 		config.AMQPUsername, config.AMQPPassword, err = parseCbConf()
 		if err != nil {
@@ -263,19 +289,24 @@ func ParseConfig(fn string) (Configuration, error) {
 		}
 	}
 
-	rabbitKeyFilename, ok := input.Get("bridge", "rabbit_mq_key")
+	clientKeyFilename, ok := input.Get("bridge", "rabbit_mq_key")
 	if ok {
-		config.AMQPTLSClientKey = rabbitKeyFilename
+		config.AMQPTLSClientKey = clientKeyFilename
 	}
 
-	rabbitCertFilename, ok := input.Get("bridge", "rabbit_mq_cert")
+	clientCertFilename, ok := input.Get("bridge", "rabbit_mq_cert")
 	if ok {
-		config.AMQPTLSClientCert = rabbitCertFilename
+		config.AMQPTLSClientCert = clientCertFilename
 	}
 
-	rabbitCaCertFilename, ok := input.Get("bridge", "rabbit_mq_ca_cert")
+	caCertFilename, ok := input.Get("bridge", "rabbit_mq_ca_cert")
 	if ok {
-		config.AMQPTLSCACert = rabbitCaCertFilename
+		config.AMQPTLSCACert = caCertFilename
+	}
+
+	rabbitQueueName, ok := input.Get("bridge", "rabbit_mq_queue_name")
+	if ok {
+		config.AMQPQueueName = rabbitQueueName
 	}
 
 	val, ok = input.Get("bridge", "cb_server_hostname")
@@ -340,20 +371,22 @@ func ParseConfig(fn string) (Configuration, error) {
 				config.S3ObjectPrefix = &objectPrefix
 			}
 
-			val, ok = input.Get("s3", "include_date_in_prefix")
-			if ok {
-				b, err := strconv.ParseBool(val)
-				if err == nil {
-					config.S3IncludeDateInPrefix = b
-				}
-			}
-
 			val, ok = input.Get("s3", "verbose_key")
 			if ok {
 				b, err := strconv.ParseBool(val)
 				if err == nil {
 					config.S3VerboseKey = b
 				}
+			}
+
+			val, ok = input.Get("s3", "compress_data")
+			if ok {
+				b, err := strconv.ParseBool(val)
+				if err == nil {
+					config.S3CompressData = b
+				}
+			} else {
+				config.S3CompressData = true
 			}
 		case "http":
 			parameterKey = "httpout"
@@ -422,21 +455,6 @@ func ParseConfig(fn string) (Configuration, error) {
 	}
 
 	// TLS configuration
-	clientKeyFilename, ok := input.Get(outType, "client_key")
-	if ok {
-		config.TLSClientKey = &clientKeyFilename
-	}
-
-	clientCertFilename, ok := input.Get(outType, "client_cert")
-	if ok {
-		config.TLSClientCert = &clientCertFilename
-	}
-
-	caCertFilename, ok := input.Get(outType, "ca_cert")
-	if ok {
-		config.TLSCACert = &caCertFilename
-	}
-
 	config.TLSVerify = true
 	tlsVerify, ok := input.Get(outType, "tls_verify")
 	if ok {
@@ -514,6 +532,8 @@ func ParseConfig(fn string) (Configuration, error) {
 	}
 
 	config.parseEventTypes(input)
+
+	config.parseMonitoredLogs(input)
 
 	if !errs.Empty {
 		return config, errs

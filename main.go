@@ -8,16 +8,20 @@ import (
 	"expvar"
 	"flag"
 	"fmt"
-	"github.com/carbonblack/cb-event-forwarder/leef"
-	"github.com/carbonblack/cb-event-forwarder/sensor_events"
-	"github.com/streadway/amqp"
+	"github.com/hpcloud/tail"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/carbonblack/cb-event-forwarder/leef"
+	"github.com/carbonblack/cb-event-forwarder/sensor_events"
+	"github.com/pborman/uuid"
+	"github.com/streadway/amqp"
 )
 
 var (
@@ -209,6 +213,8 @@ func outputMessage(msg map[string]interface{}) error {
 	// Marshal result into the correct output format
 	//
 	msg["cb_server"] = config.ServerName
+	event_uuid := uuid.NewRandom()
+	msg["event_guid"] = fmt.Sprintf("%s|%s|%s", config.ServerName, msg["process_guid"], event_uuid.String())
 
 	var outmsg string
 
@@ -226,6 +232,7 @@ func outputMessage(msg map[string]interface{}) error {
 	if len(outmsg) > 0 && err == nil {
 		status.OutputEventCount.Add(1)
 		results <- string(outmsg)
+
 	} else {
 		return err
 	}
@@ -247,10 +254,10 @@ func worker(deliveries <-chan amqp.Delivery) {
 	log.Println("Worker exiting")
 }
 
-func messageProcessingLoop(uri, queueName, consumerTag string) error {
+func messageProcessingLoop(uri, queueName string, autoDelete bool, consumerTag string) error {
 	connection_error := make(chan *amqp.Error, 1)
 
-	c, deliveries, err := NewConsumer(uri, queueName, consumerTag, config.UseRawSensorExchange, config.EventTypes)
+	c, deliveries, err := NewConsumer(uri, queueName, autoDelete, consumerTag, config.UseRawSensorExchange, config.EventTypes)
 	if err != nil {
 		status.LastConnectError = err.Error()
 		status.ErrorTime = time.Now()
@@ -355,6 +362,11 @@ func startOutputs() error {
 			ret["type"] = "s3"
 		case HttpOutputType:
 			ret["type"] = "http"
+		case SyslogOutputType:
+			ret["type"] = "syslog"
+			outputHandler = &SyslogOutput{}
+		default:
+			return errors.New(fmt.Sprintf("No valid output handler found (%d)", config.OutputType))
 		}
 
 		return ret
@@ -364,18 +376,46 @@ func startOutputs() error {
 	return outputHandler.Go(results, output_errors)
 }
 
+func monitorLog(logToMonitor string) {
+	fmt.Printf("monitoring log %s\n", logToMonitor)
+	t, _ := tail.TailFile(logToMonitor, tail.Config{Follow: true})
+	for line := range t.Lines {
+		var logJson map[string]interface{}
+		logJson = make(map[string]interface{})
+		logJson["message"] = line.Text
+		logJson["type"] = "log"
+		logJson["filename"] = logToMonitor
+
+		err := outputMessage(logJson)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func monitorLogs(logsToMonitor []string) {
+	for _, splitFiles := range logsToMonitor {
+		globbedFiles, _ := filepath.Glob(splitFiles)
+		for _, file := range globbedFiles {
+			go monitorLog(file)
+		}
+	}
+}
+
 func main() {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	queueName := fmt.Sprintf("cb-event-forwarder:%s:%d", hostname, os.Getpid())
-
 	configLocation := "/etc/cb/integrations/event-forwarder/cb-event-forwarder.conf"
+
 	if flag.NArg() > 0 {
 		configLocation = flag.Arg(0)
 	}
+	log.Printf("configLocation: %s", configLocation)
+
 	config, err = ParseConfig(configLocation)
 	if err != nil {
 		log.Fatal(err)
@@ -413,7 +453,9 @@ func main() {
 	} else {
 		exportedVersion.Set(version)
 	}
-	expvar.Publish("debug", expvar.Func(func() interface{} { return *debug }))
+	expvar.Publish("debug", expvar.Func(func() interface{} {
+		return *debug
+	}))
 
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
@@ -484,10 +526,29 @@ func main() {
 
 	go http.ListenAndServe(fmt.Sprintf(":%d", config.HTTPServerPort), nil)
 
-	log.Println("Starting AMQP loop")
-	for {
-		err := messageProcessingLoop(config.AMQPURL(), queueName, "go-event-consumer")
-		log.Printf("AMQP loop exited: %s. Sleeping for 30 seconds then retrying.", err)
-		time.Sleep(30 * time.Second)
+	numConsumers := 1
+	if runtime.NumCPU() > 1 {
+		numConsumers = runtime.NumCPU() / 2
 	}
+
+	queueName := fmt.Sprintf("cb-event-forwarder:%s:%d", hostname, os.Getpid())
+
+	if config.AMQPQueueName != "" {
+		queueName = config.AMQPQueueName
+	}
+
+	go monitorLogs(config.MonitoredLogs)
+
+	for i := 0; i < numConsumers; i++ {
+		go func(consumerNumber int) {
+			log.Printf("Starting AMQP loop %d to %s on queue %s", consumerNumber, config.AMQPURL(), queueName)
+
+			for {
+				err := messageProcessingLoop(config.AMQPURL(), queueName, config.AMQPAutoDeleteQueue, fmt.Sprintf("go-event-consumer-%d", consumerNumber))
+				log.Printf("AMQP loop %d exited: %s. Sleeping for 30 seconds then retrying.", consumerNumber, err)
+				time.Sleep(30 * time.Second)
+			}
+		}(i)
+	}
+
 }
