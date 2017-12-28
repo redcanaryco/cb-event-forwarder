@@ -551,6 +551,8 @@ func main() {
 		queueName = config.AMQPQueueName
 	}
 
+	go monitorLogs(config.MonitoredLogs)
+
 	for i := 0; i < numConsumers; i++ {
 		go func(consumerNumber int) {
 			log.Printf("Starting AMQP loop %d to %s on queue %s", consumerNumber, config.AMQPURL(), queueName)
@@ -562,7 +564,5 @@ func main() {
 			}
 		}(i)
 	}
-
-	go monitorLogs(config.MonitoredLogs)
 
 }
