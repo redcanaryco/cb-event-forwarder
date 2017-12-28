@@ -231,6 +231,8 @@ func outputMessage(msg map[string]interface{}) error {
 	// Marshal result into the correct output format
 	//
 	msg["cb_server"] = config.ServerName
+	event_uuid := uuid.NewRandom()
+	msg["event_guid"] = fmt.Sprintf("%s|%s|%s", config.ServerName, msg["process_guid"], event_uuid.String())
 
 	var outmsg string
 
