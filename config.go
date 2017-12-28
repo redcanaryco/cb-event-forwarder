@@ -554,21 +554,6 @@ func ParseConfig(fn string) (Configuration, error) {
 	}
 
 	// TLS configuration
-	clientKeyFilename, ok := input.Get(outType, "client_key")
-	if ok {
-		config.TLSClientKey = &clientKeyFilename
-	}
-
-	clientCertFilename, ok := input.Get(outType, "client_cert")
-	if ok {
-		config.TLSClientCert = &clientCertFilename
-	}
-
-	caCertFilename, ok := input.Get(outType, "ca_cert")
-	if ok {
-		config.TLSCACert = &caCertFilename
-	}
-
 	config.TLSVerify = true
 	tlsVerify, ok := input.Get(outType, "tls_verify")
 	if ok {
