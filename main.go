@@ -66,18 +66,6 @@ func init() {
 	status.OutputEventCount = expvar.NewInt("output_event_count")
 	status.ErrorCount = expvar.NewInt("error_count")
 
-	status.EventCounter = ratecounter.NewRateCounter(5 * time.Second)
-	status.OutputBytesPerSecond = ratecounter.NewRateCounter(5 * time.Second)
-
-	expvar.Publish("input_events_per_second",
-		expvar.Func(func() interface{} {
-			return float64(status.EventCounter.Rate()) / 5.0
-		}))
-	expvar.Publish("output_bytes_per_second",
-		expvar.Func(func() interface{} {
-			return float64(status.OutputBytesPerSecond.Rate()) / 5.0
-		}))
-
 	expvar.Publish("connection_status",
 		expvar.Func(func() interface{} {
 			res := make(map[string]interface{}, 0)
