@@ -58,6 +58,7 @@ type Configuration struct {
 	S3CredentialProfileName *string
 	S3ACLPolicy             *string
 	S3ObjectPrefix          *string
+	S3VerboseKey            bool
 
 	// SSL/TLS-specific configuration
 	TLSClientKey  *string
@@ -356,7 +357,7 @@ func ParseConfig(fn string) (Configuration, error) {
 		}
 	}
 
-	config.AuditLog = false 
+	config.AuditLog = false
 	val, ok = input.Get("bridge", "audit_log")
 	if ok {
 		b, err := strconv.ParseBool(val)

@@ -32,8 +32,16 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 	// If a prefix is specified then concatenate it with the Base of the filename
 	//
 	if config.S3ObjectPrefix != nil {
-		s := []string{*config.S3ObjectPrefix, filepath.Base(fileName)}
-		baseName = strings.Join(s, "/")
+		prefix := *config.S3ObjectPrefix
+
+		if config.S3VerboseKey == true {
+			additionalKey = fmt.Sprintf("customer=%s,format=cb_native,bucket=%s,key=%s", config.ServerName, o.bucketName, filepath.Base(fileName))
+			s := []string{prefix, additionalKey}
+			baseName = strings.Join(s, "/")
+		} else {
+			s := []string{prefix, filepath.Base(fileName)}
+			baseName = strings.Join(s, "/")
+		}
 	} else {
 		baseName = filepath.Base(fileName)
 	}
