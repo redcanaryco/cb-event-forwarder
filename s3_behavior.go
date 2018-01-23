@@ -1,16 +1,24 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/sirupsen/logrus"
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 type S3Behavior struct {
@@ -32,19 +40,57 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 	// If a prefix is specified then concatenate it with the Base of the filename
 	//
 	if config.S3ObjectPrefix != nil {
-		s := []string{*config.S3ObjectPrefix, filepath.Base(fileName)}
-		baseName = strings.Join(s, "/")
+		prefix := *config.S3ObjectPrefix
+
+		// cust_name=abc/ingest_dt=2017-05-11/format=cb_response/bucket=the-bucket,source=event-forwarder.2017-05-11T23:59:58
+		if config.S3VerboseKey == true {
+			current_time := time.Now().UTC()
+
+			// cust_name=test_customer,ingest_ts=2017-05-30T01:02:03Z,format=test_format,source=ZXZlbnQtZm9yd2FyZGVyLjIwMTctMDUtMjRUMDc6MTc6MTI,sver=0.0.1.json
+			encoded := base64.StdEncoding.Strict().EncodeToString([]byte(filepath.Base(fileName)))
+			encoded = strings.Replace(encoded, "=", "", -1)
+
+			baseName = fmt.Sprintf("%s/ingest_dt=%s/format=cb_response/%s,ingest_ts=%s,format=cb_response,source=%s,sver=0-0-1.json", prefix, current_time.Format("2006-01-02"), prefix, current_time.Format("2006-01-02T15:04:05.000Z"), encoded)
+		} else {
+			s := []string{prefix, filepath.Base(fileName)}
+			baseName = strings.Join(s, "/")
+		}
 	} else {
 		baseName = filepath.Base(fileName)
 	}
 
+	var byteReader io.ReadSeeker
+
+	if config.S3CompressData != false {
+		baseName += ".gz"
+		fileReader := bufio.NewReader(fp)
+
+		var gzBytes bytes.Buffer
+		gzWriter := gzip.NewWriter(&gzBytes)
+
+		fileContents, ferr := ioutil.ReadAll(fileReader)
+		if ferr != nil {
+			return UploadStatus{fileName: fileName, result: ferr}
+		}
+
+		gzWriter.Write(fileContents)
+		gzWriter.Close()
+
+		byteReader = bytes.NewReader(gzBytes.Bytes())
+
+	} else {
+		byteReader = fp
+	}
+
 	_, err := o.out.PutObject(&s3.PutObjectInput{
-		Body:                 fp,
+		Body:                 byteReader,
 		Bucket:               &o.bucketName,
 		Key:                  &baseName,
 		ServerSideEncryption: config.S3ServerSideEncryption,
 		ACL:                  config.S3ACLPolicy,
+        StorageClass:         config.S3StorageClass,
 	})
+
 	fp.Close()
 
 	log.WithFields(log.Fields{"Filename": fileName, "Bucket": &o.bucketName}).Debug("Uploading File to Bucket")

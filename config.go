@@ -7,12 +7,13 @@ import (
 	_ "expvar"
 	"fmt"
 	log "github.com/sirupsen/logrus"
-	"github.com/vaughan0/go-ini"
 	"io/ioutil"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/vaughan0/go-ini"
 )
 
 const (
@@ -46,20 +47,24 @@ type Configuration struct {
 	AMQPTLSClientCert    string
 	AMQPTLSCACert        string
 	AMQPQueueName        string
+	AMQPAutoDeleteQueue  bool
 	OutputParameters     string
 	EventTypes           []string
 	EventMap             map[string]bool
 	HTTPServerPort       int
 	CbServerURL          string
 	UseRawSensorExchange bool
+	MonitoredLogs        []string
 
 	// this is a hack for S3 specific configuration
 	S3ServerSideEncryption  *string
 	S3CredentialProfileName *string
 	S3ACLPolicy             *string
 	S3ObjectPrefix          *string
-
-	// SSL/TLS-specific configuration
+	S3StorageClass          *string
+	S3VerboseKey            bool
+	S3CompressData          bool
+	// Syslog-specific configuration
 	TLSClientKey  *string
 	TLSClientCert *string
 	TLSCACert     *string
@@ -205,6 +210,15 @@ func (c *Configuration) parseEventTypes(input ini.File) {
 	}
 }
 
+func (c *Configuration) parseMonitoredLogs(input ini.File) {
+	val, ok := input.Get("bridge", "monitored_logs")
+	if ok {
+		for _, monitored_log := range strings.Split(val, ",") {
+			c.MonitoredLogs = append(c.MonitoredLogs, monitored_log)
+		}
+	}
+}
+
 func ParseConfig(fn string) (Configuration, error) {
 	config := Configuration{}
 	errs := ConfigurationError{Empty: true}
@@ -227,6 +241,8 @@ func ParseConfig(fn string) (Configuration, error) {
 	config.S3ACLPolicy = nil
 	config.S3ServerSideEncryption = nil
 	config.S3CredentialProfileName = nil
+	config.S3StorageClass = nil
+	config.AMQPAutoDeleteQueue = true
 
 	// required values
 	val, ok := input.Get("bridge", "server_name")
@@ -285,6 +301,14 @@ func ParseConfig(fn string) (Configuration, error) {
 		port, err := strconv.Atoi(val)
 		if err == nil {
 			config.AMQPPort = port
+		}
+	}
+
+	val, ok = input.Get("bridge", "rabbit_mq_auto_delete_queue")
+	if ok {
+		b, err := strconv.ParseBool(val)
+		if err == nil {
+			config.AMQPAutoDeleteQueue = b
 		}
 	}
 
@@ -356,7 +380,7 @@ func ParseConfig(fn string) (Configuration, error) {
 		}
 	}
 
-	config.AuditLog = false 
+	config.AuditLog = false
 	val, ok = input.Get("bridge", "audit_log")
 	if ok {
 		b, err := strconv.ParseBool(val)
@@ -395,6 +419,14 @@ func ParseConfig(fn string) (Configuration, error) {
 				config.S3ACLPolicy = &aclPolicy
 			}
 
+			storageClass, ok := input.Get("s3", "storage_class")
+			if ok {
+				config.S3StorageClass = &storageClass
+				log.Println("Set storage class: ", storageClass)
+			} else {
+				log.Println("Unable to set storage class: ", storageClass)
+			}
+
 			sseType, ok := input.Get("s3", "server_side_encryption")
 			if ok {
 				config.S3ServerSideEncryption = &sseType
@@ -405,6 +437,23 @@ func ParseConfig(fn string) (Configuration, error) {
 				config.S3ObjectPrefix = &objectPrefix
 			}
 
+			val, ok = input.Get("s3", "verbose_key")
+			if ok {
+				b, err := strconv.ParseBool(val)
+				if err == nil {
+					config.S3VerboseKey = b
+				}
+			}
+
+			val, ok = input.Get("s3", "compress_data")
+			if ok {
+				b, err := strconv.ParseBool(val)
+				if err == nil {
+					config.S3CompressData = b
+				}
+			} else {
+				config.S3CompressData = true
+			}
 		case "http":
 			parameterKey = "httpout"
 			config.OutputType = HttpOutputType
@@ -514,21 +563,6 @@ func ParseConfig(fn string) (Configuration, error) {
 	}
 
 	// TLS configuration
-	clientKeyFilename, ok := input.Get(outType, "client_key")
-	if ok {
-		config.TLSClientKey = &clientKeyFilename
-	}
-
-	clientCertFilename, ok := input.Get(outType, "client_cert")
-	if ok {
-		config.TLSClientCert = &clientCertFilename
-	}
-
-	caCertFilename, ok := input.Get(outType, "ca_cert")
-	if ok {
-		config.TLSCACert = &caCertFilename
-	}
-
 	config.TLSVerify = true
 	tlsVerify, ok := input.Get(outType, "tls_verify")
 	if ok {
@@ -629,6 +663,8 @@ func ParseConfig(fn string) (Configuration, error) {
 	}
 
 	config.parseEventTypes(input)
+
+	config.parseMonitoredLogs(input)
 
 	if !errs.Empty {
 		return config, errs

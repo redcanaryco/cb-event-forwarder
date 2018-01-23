@@ -9,19 +9,23 @@ import (
 	"expvar"
 	"flag"
 	"fmt"
-	"github.com/carbonblack/cb-event-forwarder/leef"
-	"github.com/carbonblack/cb-event-forwarder/sensor_events"
+	"github.com/hpcloud/tail"
 	log "github.com/sirupsen/logrus"
-	"github.com/streadway/amqp"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/carbonblack/cb-event-forwarder/leef"
+	"github.com/carbonblack/cb-event-forwarder/sensor_events"
+	"github.com/pborman/uuid"
+	"github.com/streadway/amqp"
 )
 
 import _ "net/http/pprof"
@@ -227,6 +231,8 @@ func outputMessage(msg map[string]interface{}) error {
 	// Marshal result into the correct output format
 	//
 	msg["cb_server"] = config.ServerName
+	event_uuid := uuid.NewRandom()
+	msg["event_guid"] = fmt.Sprintf("%s|%s|%s", config.ServerName, msg["process_guid"], event_uuid.String())
 
 	var outmsg string
 
@@ -281,7 +287,6 @@ func logFileProcessingLoop() <-chan error {
 			err_chan <- err
 		}
 
-
 		for delivery := range deliveries {
 			log.Debug("Trying to deliver log message %s", delivery)
 			msg_map := make(map[string]interface{})
@@ -293,24 +298,24 @@ func logFileProcessingLoop() <-chan error {
 	}
 
 	/* maps audit log labels to event types
-AUDIT_TYPES = {
-    "cb-audit-isolation": Audit_Log_Isolation,
-    "cb-audit-banning": Audit_Log_Banning,
-    "cb-audit-live-response": Audit_Log_Liveresponse,
-    "cb-audit-useractivity": Audit_Log_Useractivity
-}
-*/
-	go spawn_tailer("/var/log/cb/audit/live-response.log","audit.log.liveresponse")
-	go spawn_tailer("/var/log/cb/audit/banning.log","audit.log.banning")
-	go spawn_tailer("/var/log/cb/audit/isolation.log","audit.log.isolation")
-	go spawn_tailer("/var/log/cb/audit/useractivity.log","audit.log.useractivity")
+	AUDIT_TYPES = {
+	    "cb-audit-isolation": Audit_Log_Isolation,
+	    "cb-audit-banning": Audit_Log_Banning,
+	    "cb-audit-live-response": Audit_Log_Liveresponse,
+	    "cb-audit-useractivity": Audit_Log_Useractivity
+	}
+	*/
+	go spawn_tailer("/var/log/cb/audit/live-response.log", "audit.log.liveresponse")
+	go spawn_tailer("/var/log/cb/audit/banning.log", "audit.log.banning")
+	go spawn_tailer("/var/log/cb/audit/isolation.log", "audit.log.isolation")
+	go spawn_tailer("/var/log/cb/audit/useractivity.log", "audit.log.useractivity")
 	return err_chan
 }
 
-func messageProcessingLoop(uri, queueName, consumerTag string) error {
+func messageProcessingLoop(uri, queueName string, autoDelete bool, consumerTag string) error {
 	connection_error := make(chan *amqp.Error, 1)
 
-	c, deliveries, err := NewConsumer(uri, queueName, consumerTag, config.UseRawSensorExchange, config.EventTypes)
+	c, deliveries, err := NewConsumer(uri, queueName, autoDelete, consumerTag, config.UseRawSensorExchange, config.EventTypes)
 	if err != nil {
 		status.LastConnectError = err.Error()
 		status.ErrorTime = time.Now()
@@ -430,6 +435,33 @@ func startOutputs() error {
 	return outputHandler.Go(results, output_errors)
 }
 
+func monitorLog(logToMonitor string) {
+	fmt.Printf("monitoring log %s\n", logToMonitor)
+	t, _ := tail.TailFile(logToMonitor, tail.Config{Follow: true})
+	for line := range t.Lines {
+		var logJson map[string]interface{}
+		logJson = make(map[string]interface{})
+		logJson["message"] = line.Text
+		logJson["type"] = "log"
+		logJson["filename"] = logToMonitor
+
+		err := outputMessage(logJson)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func monitorLogs(logsToMonitor []string) {
+	for _, splitFiles := range logsToMonitor {
+		globbedFiles, _ := filepath.Glob(splitFiles)
+		for _, file := range globbedFiles {
+			go monitorLog(file)
+		}
+	}
+}
+
 func main() {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -437,9 +469,12 @@ func main() {
 	}
 
 	configLocation := "/etc/cb/integrations/event-forwarder/cb-event-forwarder.conf"
+
 	if flag.NArg() > 0 {
 		configLocation = flag.Arg(0)
 	}
+	log.Printf("configLocation: %s", configLocation)
+
 	config, err = ParseConfig(configLocation)
 	if err != nil {
 		log.Fatal(err)
@@ -555,6 +590,8 @@ func main() {
 
 	queueName := fmt.Sprintf("cb-event-forwarder:%s:%d", hostname, os.Getpid())
 
+	go monitorLogs(config.MonitoredLogs)
+
 	if config.AMQPQueueName != "" {
 		queueName = config.AMQPQueueName
 	}
@@ -563,7 +600,8 @@ func main() {
 		go func(consumerNumber int) {
 			log.Infof("Starting AMQP loop %d to %s on queue %s", consumerNumber, config.AMQPURL(), queueName)
 			for {
-				err := messageProcessingLoop(config.AMQPURL(), queueName, fmt.Sprintf("go-event-consumer-%d", consumerNumber))
+				err := messageProcessingLoop(config.AMQPURL(), queueName, config.AMQPAutoDeleteQueue, fmt.Sprintf("go-event-consumer-%d", consumerNumber))
+
 				log.Infof("AMQP loop %d exited: %s. Sleeping for 30 seconds then retrying.", consumerNumber, err)
 				time.Sleep(30 * time.Second)
 			}
