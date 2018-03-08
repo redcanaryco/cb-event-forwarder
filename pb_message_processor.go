@@ -471,6 +471,7 @@ func WriteFilemodMessage(message *ConvertedCbMessage, kv map[string]interface{})
 func WriteChildprocMessage(message *ConvertedCbMessage, kv map[string]interface{}) {
 	kv["event_type"] = "childproc"
 	kv["type"] = "ingress.event.childproc"
+	kv["child_proc_type"] = message.OriginalMessage.Childproc.GetChildProcType()
 
 	kv["created"] = message.OriginalMessage.Childproc.GetCreated()
 
