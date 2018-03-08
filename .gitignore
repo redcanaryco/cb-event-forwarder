@@ -41,3 +41,6 @@ build/
 
 *.pb.go
 .DS_Store
+
+cb-event-forwarder
+
