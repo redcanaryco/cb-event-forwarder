@@ -472,6 +472,7 @@ func WriteChildprocMessage(message *ConvertedCbMessage, kv map[string]interface{
 	kv["event_type"] = "childproc"
 	kv["type"] = "ingress.event.childproc"
 	kv["child_proc_type"] = message.OriginalMessage.Childproc.GetChildProcType()
+	kv["child_create_time"] = message.OriginalMessage.Childproc.GetCreateTime()
 
 	kv["created"] = message.OriginalMessage.Childproc.GetCreated()
 
