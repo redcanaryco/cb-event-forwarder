@@ -15,19 +15,21 @@ import (
  * conversion routines
  */
 
-func WindowsTimeToUnixTime(windows_time int64) int64 {
+func WindowsTimeToUnixTime(windows_time int64) float64 {
 	// number of milliseconds between Jan 1st 1601 and Jan 1st 1970
 	var time_shift int64
 	time_shift = 11644473600000
 
 	if windows_time == 0 {
-		return windows_time
+		return float64(windows_time)
 	}
 
 	windows_time /= 10000      // ns to ms
 	windows_time -= time_shift // since 1601 to since 1970
-	windows_time /= 1000
-	return windows_time
+	var windows_time_float float64
+	windows_time_float = float64(windows_time)
+	windows_time_float /= 1000
+	return windows_time_float
 }
 
 func MakeGUID(sensor_id, pid int32, create_time int64) string {
