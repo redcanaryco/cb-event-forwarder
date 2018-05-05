@@ -1,0 +1,37 @@
+[bridge]
+message_processor_count=4
+server_name=@@CUSTOMER_NAME@@
+debug=0
+http_server_port=33708
+
+rabbit_mq_username=@@CB_RABBIT_USERNAME@@
+rabbit_mq_password=@@CB_RABBIT_PASSWORD@@
+cb_server_hostname=@@CB_SERVER_HOSTNAME@@
+rabbit_mq_port=5004
+rabbit_mq_queue_name=@@CB_RABBIT_QUEUE_NAME@@
+rabbit_mq_auto_delete_queue=false
+
+use_raw_sensor_exchange=true
+events_raw_sensor=ALL
+events_watchlist=ALL
+events_feed=ALL
+events_alert=ALL
+events_binary_observed=binaryinfo.observed,binaryinfo.host.observed,binaryinfo.group.observed
+events_binary_upload=binarystore.file.added
+# can't do this when we aren't on box
+# monitored_logs=/var/log/cb/audit/*.log
+
+output_type=s3
+output_format=json
+outfile=/tmp/event_bridge_output.json
+s3out=/var/cb/data/event-forwarder-s3:@@DESTINATION_S3_REGION@@:@@DESTINATION_S3_BUCKET@@
+
+[s3]
+server_side_encryption=AES256
+acl_policy=bucket-owner-full-control
+storage_class=STANDARD_IA
+bundle_size_max=104857600
+credential_profile=/var/cb/.aws/credentials:default
+object_prefix=cust_name=@@CUSTOMER_NAME@@
+verbose_key=true
+

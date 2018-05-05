@@ -1,13 +1,13 @@
 apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
-  name: @@NAME@@
+  name: @@CUSTOMER_NAME@@-event-forwarder
 spec:
   replicas: @@REPLICAS@@
   template:
     metadata:
       labels:
-        app: @@NAME@@
+        app: @@CUSTOMER_NAME@@-event-forwarder
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9102"
@@ -15,7 +15,7 @@ spec:
       volumes:
       - name: config-volume
         secret:
-          secretName: @@NAME@@-config
+          secretName: @@CUSTOMER_NAME@@-event-forwarder-config
       - name: cred-volume
         secret:
           secretName: credentials
@@ -23,8 +23,8 @@ spec:
       - name: cb-event-forwarder
         image: redcanary/cb-event-forwarder:latest
         imagePullPolicy: Always
-        command: ["@@COMMAND@@"]
-        args: ["@@ARGS@@"]
+        command: ["/cb-event-forwarder"]
+        args: ["/etc/cb/cb-event-forwarder-s3.conf"]
         volumeMounts:
         - name: config-volume
           readOnly: true

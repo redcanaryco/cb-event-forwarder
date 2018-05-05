@@ -1,136 +1,104 @@
-#! /bin/bash
-set -eo pipefail
+#! /bin/bash -eo pipefail
 
 function usage {
     echo
-    echo "This script needs $MINPARAMS command-line arguments!"
     echo "Usage:"
     echo ""
-    echo "  <source context> = k8 context to operator on"
-    echo "  <customer> = k8 context to operator on"
-    echo "  <size> = k8 context to operator on"        
+    echo "  <customer> = customer name"
+    echo "  <size> = size of forwarder (S, M, L, XL, XLM)"        
+    echo "  <cb-hostname> = Hostname of Carbon Black server"
+    echo "  <rabbit-username> = RabbitMQ username"
+    echo "  <rabbit-password> = RabbitMQ password"
     echo ""
-    echo "   e.g bin/deploy_event_forwarder.sh green rc XL"
+    echo "  e.g deploy_event_forwarder green rc XL"
 }
 
-function check_usage() {
+if [ "$#" -ne "5" ]; then
+   usage
+   exit
+fi
 
-    K8_CONFIG_PATH="$1"
-    if [ ! -f ${K8_CONFIG_PATH}/cb-event-forwarder/event-forwarder.yaml.template ]; then
-        echo "cb-event-forwarder/event-forwarder.yaml.template not found - please run from the /deploy directory"
-        exit
-    fi
-}
+CUSTOMER_NAME="$1"
+EVENT_FORWARDER_SIZE="$2"
+CB_SERVER_HOSTNAME="$3"
+CB_RABBIT_USERNAME="$4"
+CB_RABBIT_PASSWORD="$5"
 
-#
-# detokenize -
-#    - copies the template
-#    - new token values based on parameters into script and values
-#
-function detokenize_and_apply() {
-  #
-  #   replace tokens with configuration values
-  #
-    NAME=$1
-    CPU_LIMIT=$2
-    CPU_REQUEST=$3
-    MEM_LIMIT=$4
-    MEM_REQUEST=$5
-    REPLICAS=$6
-    COMMAND=$7
-    ARGS=$8
+echo "${CUSTOMER_NAME}"
 
-    TMPFILE="$(mktemp /tmp/${NAME}_event_forwarder.yaml.XXXXXXXXXXXXXX)"
-    echo Tempfile used to configure the K8 deployment $TMPFILE
+if [ "${EVENT_FORWARDER_SIZE}" == "S" ]; then
+    CPU_LIMIT=2
+    CPU_REQUEST=1
+    MEM_LIMIT=4096Mi
+    MEM_REQUEST=4096Mi
+    REPLICAS=1
+elif [ "${EVENT_FORWARDER_SIZE}" == "M" ]; then
+    CPU_LIMIT=4
+    CPU_REQUEST=2
+    MEM_LIMIT=8192Mi
+    MEM_REQUEST=8192Mi
+    REPLICAS=1
+elif [ "${EVENT_FORWARDER_SIZE}" == "L" ]; then
+    CPU_LIMIT=8
+    CPU_REQUEST=4
+    MEM_LIMIT=16384Mi
+    MEM_REQUEST=16384Mi
+    REPLICAS=1
+elif [ "${EVENT_FORWARDER_SIZE}" == "XL" ]; then
+    CPU_LIMIT=16
+    CPU_REQUEST=4
+    MEM_LIMIT=16384Mi
+    MEM_REQUEST=16384Mi
+    REPLICAS=1
+elif [ "${EVENT_FORWARDER_SIZE}" == "XLM" ]; then
+    CPU_LIMIT=16
+    CPU_REQUEST=4
+    MEM_LIMIT=20480Mi
+    MEM_REQUEST=20480Mi
+    REPLICAS=1
+ else
+    printf "Invalid event_forwarder size [%s] specified for %s \n" "${EVENT_FORWARDER_SIZE}" "${CUSTOMER_NAME}"
+    exit
+fi
 
-    cp ${K8_CONFIG_PATH}/cb-event-forwarder/event-forwarder.yaml.template "${TMPFILE}"
-    sed -i -e "s,@@NAME@@,${NAME}," "${TMPFILE}"
-    sed -i -e "s,@@REPLICAS@@,${REPLICAS}," "${TMPFILE}"
-    sed -i -e "s,@@COMMAND@@,${COMMAND}," "${TMPFILE}"
-    sed -i -e "s,@@ARGS@@,${ARGS}," "${TMPFILE}"
-    sed -i -e "s,@@CPU_LIMIT@@,${CPU_LIMIT}," "${TMPFILE}"
-    sed -i -e "s,@@CPU_REQUEST@@,${CPU_REQUEST}," "${TMPFILE}"
-    sed -i -e "s,@@MEM_LIMIT@@,${MEM_LIMIT}," "${TMPFILE}"
-    sed -i -e "s,@@MEM_REQUEST@@,${MEM_REQUEST}," "${TMPFILE}"
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-    echo "calling --context ${CONTEXT}  kubectl create -f ${TMPFILE}"
-    status="$(kubectl --context ${CONTEXT} create -f $TMPFILE)"
-#    rm "$TMPFILE"
-}
+# Deploy the secret
+TMPFILE="$(mktemp /tmp/${CUSTOMER_NAME}_event_forwarder.conf.XXXXXXXXXXXXXX)"
+cp ${DIR}/event-forwarder.conf.template "${TMPFILE}"
 
-function main() {
-    #
-    #  This should be replace with call to portal or by the future rabbit-mq autoscaler
-    #
+sed -i -e "s,@@CUSTOMER_NAME@@,${CUSTOMER_NAME}," "${TMPFILE}"
+sed -i -e "s,@@CB_SERVER_HOSTNAME@@,${CB_SERVER_HOSTNAME}," "${TMPFILE}"
+sed -i -e "s,@@CB_RABBIT_USERNAME@@,${CB_RABBIT_USERNAME}," "${TMPFILE}"
+sed -i -e "s,@@CB_RABBIT_PASSWORD@@,${CB_RABBIT_PASSWORD}," "${TMPFILE}"
+sed -i -e "s,@@CB_RABBIT_QUEUE_NAME@@,redcanary-s3," "${TMPFILE}"
+sed -i -e "s,@@DESTINATION_S3_REGION@@,us-east-1," "${TMPFILE}"
+sed -i -e "s,@@DESTINATION_S3_BUCKET@@,rc-native," "${TMPFILE}"
 
-    MINPARAMS=3
+cmd="kubectl delete secret "${CUSTOMER_NAME}-event-forwarder-config""
+echo $cmd
+$cmd || true
 
-    if [ "$#" -lt "$MINPARAMS" ]; then
-       usage
-       exit
-    fi
+cmd="kubectl create secret generic "${CUSTOMER_NAME}-event-forwarder-config" --from-file=cb-event-forwarder-s3.conf=${TMPFILE}"
+echo $cmd
+$cmd
 
-    CONTEXT="${1}.redcanary.io"
-    EVENT_FORWARDER_CUSTOMER="$2"
-    EVENT_FORWARDER_SIZE="$3"
+# Deploy the deployment
+TMPFILE="$(mktemp /tmp/${CUSTOMER_NAME}_event_forwarder.yaml.XXXXXXXXXXXXXX)"
+cp ${DIR}/event-forwarder.yaml.template "${TMPFILE}"
 
-    K8_CONFIG_PATH="$(pwd)"
-    COMMAND="/cb-event-forwarder"
+sed -i -e "s,@@CUSTOMER_NAME@@,${CUSTOMER_NAME}," "${TMPFILE}"
+sed -i -e "s,@@REPLICAS@@,${REPLICAS}," "${TMPFILE}"
+sed -i -e "s,@@CPU_LIMIT@@,${CPU_LIMIT}," "${TMPFILE}"
+sed -i -e "s,@@CPU_REQUEST@@,${CPU_REQUEST}," "${TMPFILE}"
+sed -i -e "s,@@MEM_LIMIT@@,${MEM_LIMIT}," "${TMPFILE}"
+sed -i -e "s,@@MEM_REQUEST@@,${MEM_REQUEST}," "${TMPFILE}"
 
-    check_usage "$K8_CONFIG_PATH"
+cmd="kubectl apply -f ${TMPFILE}"
+echo $cmd
+$cmd
 
-    echo "${EVENT_FORWARDER_CUSTOMER}"
-
-    if [ "${EVENT_FORWARDER_SIZE}" == "S" ]; then
-        CPU_LIMIT=2
-        CPU_REQUEST=2
-        MEM_LIMIT=4096Mi
-        MEM_REQUEST=4096Mi
-        REPLICAS=1
-    elif [ "${EVENT_FORWARDER_SIZE}" == "M" ]; then
-        CPU_LIMIT=4
-        CPU_REQUEST=4
-        MEM_LIMIT=8192Mi
-        MEM_REQUEST=8192Mi
-        REPLICAS=1
-    elif [ "${EVENT_FORWARDER_SIZE}" == "L" ]; then
-        CPU_LIMIT=8
-        CPU_REQUEST=8
-        MEM_LIMIT=16384Mi
-        MEM_REQUEST=16384Mi
-        REPLICAS=1
-    elif [ "${EVENT_FORWARDER_SIZE}" == "XL" ]; then
-        CPU_LIMIT=16
-        CPU_REQUEST=16
-        MEM_LIMIT=16384Mi
-        MEM_REQUEST=16384Mi
-        REPLICAS=1
-    elif [ "${EVENT_FORWARDER_SIZE}" == "XLM" ]; then
-        CPU_LIMIT=16
-        CPU_REQUEST=16
-        MEM_LIMIT=20480Mi
-        MEM_REQUEST=20480Mi
-        REPLICAS=1
-     else
-        printf "Invalid event_forwarder size [%s] specified for %s \n" "${EVENT_FORWARDER_SIZE}" "${EVENT_FORWARDER_CUSTOMER}"
-        exit
-    fi
-
-    ARGS="/etc/cb/${EVENT_FORWARDER_CUSTOMER}-cb-event-forwarder-s3.conf"
-    CUST_NAME="${EVENT_FORWARDER_CUSTOMER}-event-forwarder"
-    detokenize_and_apply "${CUST_NAME}" $CPU_LIMIT $CPU_REQUEST $MEM_LIMIT $MEM_REQUEST $REPLICAS $COMMAND $ARGS
-
-    #
-    #  Deploy an hpa for the deployment
-    #
-    cmd="kubectl --context ${CONTEXT} autoscale deployment ${CUST_NAME} --cpu-percent=80 --min=1 --max=10"
-    echo $cmd
-    $cmd
-
-}
-
-main "$@"
-
-# debug
-#cat ${TMPFILE}
-
+# Deploy an hpa for the deployment
+cmd="kubectl autoscale deployment "${CUSTOMER_NAME}-event-forwarder" --cpu-percent=80 --min=1 --max=10"
+echo $cmd
+$cmd
