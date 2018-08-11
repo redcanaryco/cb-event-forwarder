@@ -76,6 +76,8 @@ func fixupMessage(messageType string, msg map[string]interface{}) {
 		switch {
 		case key == "highlights":
 			delete(msg, "highlights")
+		case key == "highlights_by_doc":
+			delete(msg, "highlights_by_doc")
 		case key == "event_timestamp":
 			msg["timestamp"] = value
 			delete(msg, "event_timestamp")
