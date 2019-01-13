@@ -596,6 +596,10 @@ func main() {
 		queueName = config.AMQPQueueName
 	}
 
+	if config.AMQPDisabled {
+		numConsumers = 0
+		log.Infof("AMQP processing is disabled, not starting AMQP processing loop")
+	}
 	for i := 0; i < numConsumers; i++ {
 		go func(consumerNumber int) {
 			log.Infof("Starting AMQP loop %d to %s on queue %s", consumerNumber, config.AMQPURL(), queueName)
