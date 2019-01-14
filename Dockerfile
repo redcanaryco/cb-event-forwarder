@@ -1,4 +1,4 @@
-FROM golang:1.8 as builder
+FROM golang:1.9 as builder
 
 RUN apt-get update && apt-get install -y libprotobuf-java protobuf-compiler && rm -rf /var/lib/apt/lists/*
 
@@ -14,7 +14,7 @@ RUN export GOPATH=/go && \
     go get ./... && \
     go build
 
-FROM golang:1.8
+FROM golang:1.9
 WORKDIR /
 COPY --from=builder /go/bin/cb-event-forwarder .
 COPY --from=builder /go/src/github.com/carbonblack/cb-event-forwarder/conf .
