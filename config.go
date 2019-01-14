@@ -39,6 +39,7 @@ type Configuration struct {
 	DebugStore           string
 	OutputType           int
 	OutputFormat         int
+	AMQPDisabled         bool
 	AMQPUsername         string
 	AMQPPassword         string
 	AMQPPort             int
@@ -232,6 +233,7 @@ func ParseConfig(fn string) (Configuration, error) {
 	config.DebugFlag = false
 	config.OutputFormat = JSONOutputFormat
 	config.OutputType = FileOutputType
+	config.AMQPDisabled = false
 	config.AMQPHostname = "localhost"
 	config.AMQPUsername = "cb"
 	config.HTTPServerPort = 33706
@@ -284,74 +286,82 @@ func ParseConfig(fn string) (Configuration, error) {
 		}
 	}
 
-	val, ok = input.Get("bridge", "rabbit_mq_username")
+	val, ok = input.Get("bridge", "rabbit_mq_disabled")
 	if ok {
-		config.AMQPUsername = val
+	   b, err := strconv.ParseBool(val)
+	   if err == nil {
+	      config.AMQPDisabled = b
+	   }
 	}
 
-	val, ok = input.Get("bridge", "rabbit_mq_password")
-	if !ok {
-		errs.addErrorString("Missing required rabbit_mq_password section")
-	} else {
-		config.AMQPPassword = val
-	}
+	if !config.AMQPDisabled {
+	   val, ok = input.Get("bridge", "rabbit_mq_username")
+	   if ok {
+	      config.AMQPUsername = val
+	   }
 
-	val, ok = input.Get("bridge", "rabbit_mq_port")
-	if ok {
-		port, err := strconv.Atoi(val)
-		if err == nil {
-			config.AMQPPort = port
-		}
-	}
+	   val, ok = input.Get("bridge", "rabbit_mq_password")
+	   if !ok {
+	      errs.addErrorString("Missing required rabbit_mq_password section")
+	   } else {
+	      config.AMQPPassword = val
+	   }
 
-	val, ok = input.Get("bridge", "rabbit_mq_auto_delete_queue")
-	if ok {
-		b, err := strconv.ParseBool(val)
-		if err == nil {
-			config.AMQPAutoDeleteQueue = b
-		}
-	}
+	   val, ok = input.Get("bridge", "rabbit_mq_port")
+	   if ok {
+	      port, err := strconv.Atoi(val)
+	      if err == nil {
+	         config.AMQPPort = port
+	      }
+	   }
 
-	if len(config.AMQPUsername) == 0 || len(config.AMQPPassword) == 0 {
-		config.AMQPUsername, config.AMQPPassword, err = parseCbConf()
-		if err != nil {
-			errs.addError(err)
-		}
-	}
+	   val, ok = input.Get("bridge", "rabbit_mq_auto_delete_queue")
+	   if ok {
+	      b, err := strconv.ParseBool(val)
+	      if err == nil {
+	         config.AMQPAutoDeleteQueue = b
+	      }
+	   }
 
-	val, ok = input.Get("bridge", "rabbit_mq_use_tls")
-	if ok {
-		if ok {
-			b, err := strconv.ParseBool(val)
-			if err == nil {
-				config.AMQPTLSEnabled = b
-			}
-		}
-	}
+	   if len(config.AMQPUsername) == 0 || len(config.AMQPPassword) == 0 {
+	      config.AMQPUsername, config.AMQPPassword, err = parseCbConf()
+	      if err != nil {
+	         errs.addError(err)
+	      }
+	   }
 
-	rabbitKeyFilename, ok := input.Get("bridge", "rabbit_mq_key")
-	if ok {
-		config.AMQPTLSClientKey = rabbitKeyFilename
-	}
+	   val, ok = input.Get("bridge", "rabbit_mq_use_tls")
+	   if ok {
+	      b, err := strconv.ParseBool(val)
+	      if err == nil {
+	         config.AMQPTLSEnabled = b
+	      }
+	   }
 
-	rabbitCertFilename, ok := input.Get("bridge", "rabbit_mq_cert")
-	if ok {
-		config.AMQPTLSClientCert = rabbitCertFilename
-	}
+	   rabbitKeyFilename, ok := input.Get("bridge", "rabbit_mq_key")
+	   if ok {
+	      config.AMQPTLSClientKey = rabbitKeyFilename
+	   }
 
-	rabbitCaCertFilename, ok := input.Get("bridge", "rabbit_mq_ca_cert")
-	if ok {
-		config.AMQPTLSCACert = rabbitCaCertFilename
-	}
+	   rabbitCertFilename, ok := input.Get("bridge", "rabbit_mq_cert")
+	   if ok {
+	      config.AMQPTLSClientCert = rabbitCertFilename
+	   }
 
-	rabbitQueueName, ok := input.Get("bridge", "rabbit_mq_queue_name")
-	if ok {
-		config.AMQPQueueName = rabbitQueueName
-	}
+	   rabbitCaCertFilename, ok := input.Get("bridge", "rabbit_mq_ca_cert")
+	   if ok {
+	      config.AMQPTLSCACert = rabbitCaCertFilename
+	   }
 
-	val, ok = input.Get("bridge", "cb_server_hostname")
-	if ok {
-		config.AMQPHostname = val
+	   rabbitQueueName, ok := input.Get("bridge", "rabbit_mq_queue_name")
+	   if ok {
+	      config.AMQPQueueName = rabbitQueueName
+	   }
+
+	   val, ok = input.Get("bridge", "cb_server_hostname")
+	   if ok {
+	      config.AMQPHostname = val
+	   }
 	}
 
 	val, ok = input.Get("bridge", "cb_server_url")
