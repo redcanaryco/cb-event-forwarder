@@ -11,6 +11,11 @@ The list of events to collect is configurable.
 By default all feed and watchlist hits, alerts, binary notifications, and raw sensor events are exported into JSON.  The
 configuration file for the connector is stored in `/etc/cb/integrations/event-forwarder/cb-event-forwarder.conf`.
 
+## Static ELF Binary, build using Docker
+docker build .
+# final output will say something like "Successfully built c7accad4c773" - use this hash
+docker run c7accad4c773 cat cb-event-forwarder > cb-event-forwarder
+
 ## Support
 
 The pre-built RPM is supported via our [User eXchange (Jive)](https://community.carbonblack.com/community/developer-relations) 
