@@ -12,9 +12,12 @@ By default all feed and watchlist hits, alerts, binary notifications, and raw se
 configuration file for the connector is stored in `/etc/cb/integrations/event-forwarder/cb-event-forwarder.conf`.
 
 ## Static ELF Binary, build using Docker
+```
 docker build .
+
 # final output will say something like "Successfully built c7accad4c773" - use this hash
 docker run c7accad4c773 cat cb-event-forwarder > cb-event-forwarder
+```
 
 ## Support
 
