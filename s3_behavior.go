@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -42,15 +41,11 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 	if config.S3ObjectPrefix != nil {
 		prefix := *config.S3ObjectPrefix
 
-		// cust_name=abc/ingest_dt=2017-05-11/format=cb_response/bucket=the-bucket,source=event-forwarder.2017-05-11T23:59:58
+		// cust_name=abc/ingest_dt=2017-05-11/format=cb_response/bucket=the-bucket.2017-05-11T23:59:58
 		if config.S3VerboseKey == true {
 			current_time := time.Now().UTC()
 
-			// cust_name=test_customer,ingest_ts=2017-05-30T01:02:03Z,format=test_format,source=ZXZlbnQtZm9yd2FyZGVyLjIwMTctMDUtMjRUMDc6MTc6MTI,sver=0.0.1.json
-			encoded := base64.StdEncoding.Strict().EncodeToString([]byte(filepath.Base(fileName)))
-			encoded = strings.Replace(encoded, "=", "", -1)
-
-			baseName = fmt.Sprintf("%s/ingest_dt=%s/format=cb_response/%s,ingest_ts=%s,format=cb_response,source=%s,sver=0-0-1.json", prefix, current_time.Format("2006-01-02"), prefix, current_time.Format("2006-01-02T15:04:05.000Z"), encoded)
+			baseName = fmt.Sprintf("%s/ingest_dt=%s/format=cb_response/%s,ingest_ts=%s,format=cb_response.json", prefix, current_time.Format("2006-01-02"), prefix, current_time.Format("2006-01-02T15:04:05.000Z"))
 		} else {
 			s := []string{prefix, filepath.Base(fileName)}
 			baseName = strings.Join(s, "/")
