@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
