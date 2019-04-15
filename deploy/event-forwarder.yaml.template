@@ -45,7 +45,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - "find /var/cb/data/event-forwarder-s3 -name event-forwarder -mmin -$((60*5)) | grep -q '.'"
+            - "find /var/cb/data/event-forwarder-s3 -name event-forwarder -mmin -5) | grep -q '.'"
           initialDelaySeconds: 5
           periodSeconds: 30
 
