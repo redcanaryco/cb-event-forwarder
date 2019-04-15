@@ -28,19 +28,23 @@ func NewConsumer(amqpURI, queueName string, autoDelete bool, ctag string, bindTo
 
 		cfg := new(tls.Config)
 
-		caCert, err := ioutil.ReadFile(config.AMQPTLSCACert)
-		if err != nil {
-			log.Fatal(err)
+		// Check if we have client SSL config to use and load it
+		if config.AMQPTLSCACert != "" && config.AMQPTLSClientCert != "" && config.AMQPTLSClientKey != "" {
+			caCert, err := ioutil.ReadFile(config.AMQPTLSCACert)
+			if err != nil {
+				log.Fatal(err)
+			}
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCert)
+			cfg.RootCAs = caCertPool
+	
+			cert, err := tls.LoadX509KeyPair(config.AMQPTLSClientCert, config.AMQPTLSClientKey)
+			if err != nil {
+				log.Fatal(err)
+			}
+			cfg.Certificates = []tls.Certificate{cert}
 		}
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(caCert)
-		cfg.RootCAs = caCertPool
-
-		cert, err := tls.LoadX509KeyPair(config.AMQPTLSClientCert, config.AMQPTLSClientKey)
-		if err != nil {
-			log.Fatal(err)
-		}
-		cfg.Certificates = []tls.Certificate{cert}
+		
 		cfg.InsecureSkipVerify = true
 
 		c.conn, err = amqp.DialTLS(amqpURI, cfg)

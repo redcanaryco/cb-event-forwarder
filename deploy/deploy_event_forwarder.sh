@@ -9,8 +9,9 @@ function usage {
     echo "  <cb-hostname> = Hostname of Carbon Black server"
     echo "  <rabbit-username> = RabbitMQ username"
     echo "  <rabbit-password> = RabbitMQ password"
+    echo "  <rabbit-ssl> = true/false whether rabbit should connect over tls"
     echo ""
-    echo "  e.g deploy_event_forwarder green rc XL"
+    echo "  e.g deploy_event_forwarder green rc XL cb password false"
 }
 
 if [ "$#" -ne "5" ]; then
@@ -23,6 +24,7 @@ EVENT_FORWARDER_SIZE="$2"
 CB_SERVER_HOSTNAME="$3"
 CB_RABBIT_USERNAME="$4"
 CB_RABBIT_PASSWORD="$5"
+CB_RABBIT_SSL="$6"
 
 echo "${CUSTOMER_NAME}"
 
@@ -61,6 +63,12 @@ elif [ "${EVENT_FORWARDER_SIZE}" == "XLM" ]; then
     exit
 fi
 
+if [ "${CB_RABBIT_SSL}" == "true" ]; then
+    RABBIT_PORT=5671
+else
+    RABBIT_PORT=5004
+fi
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Deploy the secret
@@ -71,6 +79,7 @@ sed -i -e "s,@@CUSTOMER_NAME@@,${CUSTOMER_NAME}," "${TMPFILE}"
 sed -i -e "s,@@CB_SERVER_HOSTNAME@@,${CB_SERVER_HOSTNAME}," "${TMPFILE}"
 sed -i -e "s,@@CB_RABBIT_USERNAME@@,${CB_RABBIT_USERNAME}," "${TMPFILE}"
 sed -i -e "s,@@CB_RABBIT_PASSWORD@@,${CB_RABBIT_PASSWORD}," "${TMPFILE}"
+sed -i -e "s,@@CB_RABBIT_PORT@@,${RABBIT_PORT}," "${TMPFILE}"
 sed -i -e "s,@@CB_RABBIT_QUEUE_NAME@@,redcanary-s3," "${TMPFILE}"
 sed -i -e "s,@@DESTINATION_S3_REGION@@,us-east-1," "${TMPFILE}"
 sed -i -e "s,@@DESTINATION_S3_BUCKET@@,rc-native," "${TMPFILE}"

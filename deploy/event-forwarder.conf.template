@@ -7,7 +7,7 @@ http_server_port=33708
 rabbit_mq_username=@@CB_RABBIT_USERNAME@@
 rabbit_mq_password=@@CB_RABBIT_PASSWORD@@
 cb_server_hostname=@@CB_SERVER_HOSTNAME@@
-rabbit_mq_port=5004
+rabbit_mq_port=@@CB_RABBIT_PORT@@
 rabbit_mq_queue_name=@@CB_RABBIT_QUEUE_NAME@@
 rabbit_mq_auto_delete_queue=false
 

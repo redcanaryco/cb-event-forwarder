@@ -110,7 +110,11 @@ type ConfigurationError struct {
 }
 
 func (c *Configuration) AMQPURL() string {
-	return fmt.Sprintf("amqp://%s:%s@%s:%d", c.AMQPUsername, c.AMQPPassword, c.AMQPHostname, c.AMQPPort)
+	if c.AMQPTLSEnabled == true {
+		return fmt.Sprintf("amqps://%s:%s@%s:%d", c.AMQPUsername, c.AMQPPassword, c.AMQPHostname, c.AMQPPort)
+	} else {
+		return fmt.Sprintf("amqp://%s:%s@%s:%d", c.AMQPUsername, c.AMQPPassword, c.AMQPHostname, c.AMQPPort)
+	}
 }
 
 func (e ConfigurationError) Error() string {
