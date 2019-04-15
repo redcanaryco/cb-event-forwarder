@@ -14,7 +14,7 @@ function usage {
     echo "  e.g deploy_event_forwarder green rc XL cb password false"
 }
 
-if [ "$#" -ne "5" ]; then
+if [ "$#" -ne "6" ]; then
    usage
    exit
 fi
@@ -83,6 +83,7 @@ sed -i -e "s,@@CB_RABBIT_PORT@@,${RABBIT_PORT}," "${TMPFILE}"
 sed -i -e "s,@@CB_RABBIT_QUEUE_NAME@@,redcanary-s3," "${TMPFILE}"
 sed -i -e "s,@@DESTINATION_S3_REGION@@,us-east-1," "${TMPFILE}"
 sed -i -e "s,@@DESTINATION_S3_BUCKET@@,rc-native," "${TMPFILE}"
+sed -i -e "s,@@CB_RABBIT_SSL@@,${CB_RABBIT_SSL}," "${TMPFILE}"
 
 cmd="kubectl delete secret "${CUSTOMER_NAME}-event-forwarder-config""
 echo $cmd

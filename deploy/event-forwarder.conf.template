@@ -10,6 +10,7 @@ cb_server_hostname=@@CB_SERVER_HOSTNAME@@
 rabbit_mq_port=@@CB_RABBIT_PORT@@
 rabbit_mq_queue_name=@@CB_RABBIT_QUEUE_NAME@@
 rabbit_mq_auto_delete_queue=false
+rabbit_mq_use_tls=@@CB_RABBIT_SSL@@
 
 use_raw_sensor_exchange=true
 events_raw_sensor=ALL
