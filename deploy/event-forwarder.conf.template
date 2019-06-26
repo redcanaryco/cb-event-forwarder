@@ -30,7 +30,7 @@ s3out=/var/cb/data/event-forwarder-s3:@@DESTINATION_S3_REGION@@:@@DESTINATION_S3
 [s3]
 server_side_encryption=AES256
 acl_policy=bucket-owner-full-control
-storage_class=STANDARD_IA
+storage_class=STANDARD
 bundle_size_max=104857600
 credential_profile=/var/cb/.aws/credentials:default
 object_prefix=cust_name=@@CUSTOMER_NAME@@
