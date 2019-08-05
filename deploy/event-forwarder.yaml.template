@@ -2,6 +2,7 @@ apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
   name: @@CUSTOMER_NAME@@-event-forwarder
+  namespace: @@NAMESPACE@@
 spec:
   replicas: @@REPLICAS@@
   template:
