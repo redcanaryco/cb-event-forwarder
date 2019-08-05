@@ -12,7 +12,7 @@ function usage {
     echo "  <rabbit-ssl> = true/false whether rabbit should connect over tls - normally false"
     echo "  <namespace> = Namespace for the kubnernetes deployment "
     echo ""
-    echo "  e.g deploy_event_forwarder rc rc-cb.somedomain XL cb password  cb-event-forwarders"
+    echo "  e.g deploy_event_forwarder rc rc-cb.somedomain XL cb password false cb-event-forwarders"
 }
 
 if [ "$#" -ne "7" ]; then
