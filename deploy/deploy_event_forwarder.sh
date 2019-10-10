@@ -5,16 +5,17 @@ function usage {
     echo "Usage:"
     echo ""
     echo "  <customer> = customer name"
-    echo "  <size> = size of forwarder (S, M, L, XL, XLM)"        
+    echo "  <size> = size of forwarder (S, M, L, XL, XLM)"
     echo "  <cb-hostname> = Hostname of Carbon Black server"
     echo "  <rabbit-username> = RabbitMQ username"
     echo "  <rabbit-password> = RabbitMQ password"
-    echo "  <rabbit-ssl> = true/false whether rabbit should connect over tls"
+    echo "  <rabbit-ssl> = true/false whether rabbit should connect over tls - normally false"
+    echo "  <namespace> = Namespace for the kubnernetes deployment "
     echo ""
-    echo "  e.g deploy_event_forwarder green rc XL cb password false"
+    echo "  e.g deploy_event_forwarder rc rc-cb.somedomain XL cb password false cb-event-forwarders"
 }
 
-if [ "$#" -ne "6" ]; then
+if [ "$#" -ne "7" ]; then
    usage
    exit
 fi
@@ -25,6 +26,7 @@ CB_SERVER_HOSTNAME="$3"
 CB_RABBIT_USERNAME="$4"
 CB_RABBIT_PASSWORD="$5"
 CB_RABBIT_SSL="$6"
+NAMESPACE="$7"
 
 echo "${CUSTOMER_NAME}"
 
@@ -89,7 +91,7 @@ cmd="kubectl delete secret "${CUSTOMER_NAME}-event-forwarder-config""
 echo $cmd
 $cmd || true
 
-cmd="kubectl create secret generic "${CUSTOMER_NAME}-event-forwarder-config" --from-file=cb-event-forwarder-s3.conf=${TMPFILE}"
+cmd="kubectl create secret generic "${CUSTOMER_NAME}-event-forwarder-config" -n ${NAMESPACE} --from-file=cb-event-forwarder-s3.conf=${TMPFILE}"
 echo $cmd
 $cmd
 
@@ -98,6 +100,7 @@ TMPFILE="$(mktemp /tmp/${CUSTOMER_NAME}_event_forwarder.yaml.XXXXXXXXXXXXXX)"
 cp ${DIR}/event-forwarder.yaml.template "${TMPFILE}"
 
 sed -i -e "s,@@CUSTOMER_NAME@@,${CUSTOMER_NAME}," "${TMPFILE}"
+sed -i -e "s,@@NAMESPACE@@,${NAMESPACE}," "${TMPFILE}"
 sed -i -e "s,@@REPLICAS@@,${REPLICAS}," "${TMPFILE}"
 sed -i -e "s,@@CPU_LIMIT@@,${CPU_LIMIT}," "${TMPFILE}"
 sed -i -e "s,@@CPU_REQUEST@@,${CPU_REQUEST}," "${TMPFILE}"
@@ -109,6 +112,6 @@ echo $cmd
 $cmd
 
 # Deploy an hpa for the deployment
-cmd="kubectl autoscale deployment "${CUSTOMER_NAME}-event-forwarder" --cpu-percent=80 --min=1 --max=10"
+cmd="kubectl autoscale deployment "${CUSTOMER_NAME}-event-forwarder" -n ${NAMESPACE} --cpu-percent=80 --min=1 --max=10"
 echo $cmd
 $cmd
