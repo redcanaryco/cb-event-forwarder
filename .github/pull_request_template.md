@@ -52,10 +52,10 @@ the following default should suffice.
 ### Approvals Needed
 
 Routine Changes:
- - @redcanaryco/team-sre or @@redcanaryco/team-processing (Optional)
+ - @redcanaryco/team-sre or @redcanaryco/team-processing (Optional)
 
 Declared Changes:
- - @redcanaryco/team-sre and @@redcanaryco/team-processing (Required Prior to Merge)
+ - @redcanaryco/team-sre and @redcanaryco/team-processing (Required Prior to Merge)
 
 Emergency Changes:
- - @redcanaryco/team-sre and @@redcanaryco/team-processing (Required Prior/Post Merge)
+ - @redcanaryco/team-sre and @redcanaryco/team-processing (Required Prior/Post Merge)
