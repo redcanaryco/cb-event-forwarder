@@ -87,7 +87,7 @@ sed -i -e "s,@@DESTINATION_S3_REGION@@,us-east-1," "${TMPFILE}"
 sed -i -e "s,@@DESTINATION_S3_BUCKET@@,rc-native," "${TMPFILE}"
 sed -i -e "s,@@CB_RABBIT_SSL@@,${CB_RABBIT_SSL}," "${TMPFILE}"
 
-cmd="kubectl delete secret "${CUSTOMER_NAME}-event-forwarder-config""
+cmd="kubectl delete secret "${CUSTOMER_NAME}-event-forwarder-config" -n ${NAMESPACE}"
 echo $cmd
 $cmd || true
 
