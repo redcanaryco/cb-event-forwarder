@@ -21,7 +21,7 @@ policy in https://drive.google.com/drive/folders/1YgEceW5HQ2bQ4OAuhFIgN1oHmLk9Rf
 - [ ] None: Documentation change
 - [ ] Unit Tests
 - [ ] Functional Tests
-- [X] Manual Tests
+- [X] Manual Tests: <!-- Describe how this should be tested -->
 
 <!--
 Describe the testing procedure that has been done, or will be done, if any.
