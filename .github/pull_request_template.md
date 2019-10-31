@@ -18,7 +18,7 @@ policy in https://drive.google.com/drive/folders/1YgEceW5HQ2bQ4OAuhFIgN1oHmLk9Rf
 
 ### Testing
 
-- [ ] None: Implicit through tooling or non-configuration management change
+- [ ] None: Documentation change
 - [ ] Unit Tests
 - [ ] Functional Tests
 - [X] Manual Tests
