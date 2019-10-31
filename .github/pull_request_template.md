@@ -31,8 +31,8 @@ Optional for routine changes, mandatory for declared changes.
 ### Rollout Procedure
 
 - [ ] None: Non-configuration management change
-- [ ] Manual Roll-Out: <!-- If checked, replace with description -->
-- [X] Automated Roll-Out (Full): Changes will be applied when an image is built from master and pushed to redcanary/cb-event-forwarder:latest
+- [X] Manual Roll-Out: <!-- If checked, replace with description -->
+- [ ] Automated Roll-Out (Full)
 
 <!--
 Describe how this change will be rolled out. For most changes in this repository,
