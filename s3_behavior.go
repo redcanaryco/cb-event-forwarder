@@ -17,6 +17,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -31,6 +35,11 @@ type S3Statistics struct {
 	Region            string `json:"region"`
 	EncryptionEnabled bool   `json:"encryption_enabled"`
 }
+
+var s3Bytes = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "event_forwarder_s3_bytes",
+	Help: "The number of (uncompressed) bytes that have been successfully written to S3.",
+})
 
 func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 	var baseName string
@@ -56,6 +65,12 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 
 	var byteReader io.ReadSeeker
 
+	fileStat, err := fp.Stat()
+	if err != nil {
+		return UploadStatus{fileName: fileName, result: err}
+	}
+	fileLength := fileStat.Size()
+
 	if config.S3CompressData != false {
 		baseName += ".gz"
 		fileReader := bufio.NewReader(fp)
@@ -77,7 +92,7 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 		byteReader = fp
 	}
 
-	_, err := o.out.PutObject(&s3.PutObjectInput{
+	_, err = o.out.PutObject(&s3.PutObjectInput{
 		Body:                 byteReader,
 		Bucket:               &o.bucketName,
 		Key:                  &baseName,
@@ -87,6 +102,8 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 	})
 
 	fp.Close()
+
+	s3Bytes.Add(float64(fileLength))
 
 	log.WithFields(log.Fields{"Filename": fileName, "Bucket": &o.bucketName}).Debug("Uploading File to Bucket")
 
