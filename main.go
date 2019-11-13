@@ -27,6 +27,8 @@ import (
 	"github.com/pborman/uuid"
 	"github.com/streadway/amqp"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -63,6 +65,21 @@ var (
 	results       chan string
 	output_errors chan error
 )
+
+var inputMessages = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "event_forwarder_input_messages",
+	Help: "The number of messages that have been received from the CB server",
+})
+
+var queuedMessages = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "event_forwarder_queued_messages",
+	Help: "The number of messages that have been queued up to be sent",
+})
+
+var queuedBytes = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "event_forwarder_queued_bytes",
+	Help: "The number of bytes that have been queued up to be sent",
+})
 
 /*
  * Initializations
@@ -173,15 +190,20 @@ func processMessage(body []byte, routingKey, contentType string, headers amqp.Ta
 		if err != nil {
 			reportBundleDetails(routingKey, body, headers)
 			reportError(routingKey, "Could not process raw zip bundle", err)
+			inputMessages.Inc()
 			return
+		} else {
+			inputMessages.Add(float64(len(msgs)))
 		}
 	} else if contentType == "application/protobuf" {
 		// if we receive a protobuf through the raw sensor exchange, it's actually a protobuf "bundle" and not a
 		// single protobuf
 		if exchangeName == "api.rawsensordata" {
 			msgs, err = ProcessProtobufBundle(routingKey, body, headers)
+			inputMessages.Add(float64(len(msgs)))
 		} else {
 			msg, err := ProcessProtobufMessage(routingKey, body, headers)
+			inputMessages.Inc()
 			if err != nil {
 				reportBundleDetails(routingKey, body, headers)
 				reportError(routingKey, "Could not process body", err)
@@ -201,12 +223,15 @@ func processMessage(body []byte, routingKey, contentType string, headers amqp.Ta
 		decoder.UseNumber()
 
 		if err := decoder.Decode(&msg); err != nil {
+			inputMessages.Inc()
 			reportError(string(body), "Received error when unmarshaling JSON body", err)
 			return
 		}
 
 		msgs, err = ProcessJSONMessage(msg, routingKey)
+		inputMessages.Add(float64(len(msgs)))
 	} else {
+		inputMessages.Inc()
 		reportError(string(body), "Unknown content-type", errors.New(contentType))
 		return
 	}
@@ -251,6 +276,8 @@ func outputMessage(msg map[string]interface{}) error {
 
 	if len(outmsg) > 0 && err == nil {
 		status.OutputEventCount.Add(1)
+		queuedMessages.Inc()
+		queuedBytes.Add(float64(len(outmsg)))
 		results <- string(outmsg)
 	} else {
 		return err
