@@ -26,6 +26,8 @@ import (
 	"github.com/carbonblack/cb-event-forwarder/sensor_events"
 	"github.com/pborman/uuid"
 	"github.com/streadway/amqp"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 import _ "net/http/pprof"
@@ -541,6 +543,8 @@ func main() {
 			break
 		}
 	}
+
+	http.Handle("/metrics/", promhttp.Handler())
 
 	if *debug {
 		http.HandleFunc("/debug/sendmessage", func(w http.ResponseWriter, r *http.Request) {
