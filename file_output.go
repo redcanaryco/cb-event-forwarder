@@ -110,8 +110,8 @@ func (o *FileOutput) Go(messages <-chan string, errorChan chan<- error) error {
 		signal.Notify(term, syscall.SIGTERM)
 		signal.Notify(term, syscall.SIGINT)
 
-		defer o.closeFile()
 		defer o.flushOutput(true)
+		defer o.closeFile()
 		defer signal.Stop(hup)
 		defer signal.Stop(term)
 
