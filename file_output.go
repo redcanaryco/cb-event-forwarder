@@ -181,7 +181,7 @@ func (o *FileOutput) flushOutput(force bool) error {
 			o.bufferOutput.lastFlush = time.Now()
 			return nil
 
-		} else {
+		} else if o.outputFile != nil {
 			_, err := o.outputFile.Write(o.bufferOutput.buffer.Bytes())
 
 			if err != nil {
