@@ -96,6 +96,18 @@ func (o *BundledOutput) uploadOne(fileName string) {
 	}
 }
 
+func (o *BundledOutput) uploadAllFilesToUpload() {
+	if len(o.filesToUpload) > 0 {
+		var fn string
+		fn, o.filesToUpload = o.filesToUpload[0], o.filesToUpload[1:]
+		go o.uploadOne(fn)
+	}
+
+	for i := 0; i < len(o.filesToUpload); i++ {
+		o.uploadOne(o.filesToUpload[i])
+	}
+}
+
 func (o *BundledOutput) queueStragglers() {
 	fp, err := os.Open(o.tempFileDirectory)
 	if err != nil {
@@ -295,6 +307,7 @@ func (o *BundledOutput) Go(messages <-chan string, errorChan chan<- error) error
 				errorChan <- errors.New("SIGTERM received")
 				o.tempFileOutput.flushOutput(true)
 				o.tempFileOutput.closeFile()
+				o.uploadAllFilesToUpload()
 				refreshTicker.Stop()
 				log.Info("Received SIGTERM. Exiting")
 				return
