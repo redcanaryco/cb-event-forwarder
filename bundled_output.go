@@ -304,13 +304,14 @@ func (o *BundledOutput) Go(messages <-chan string, errorChan chan<- error) error
 				}
 			case <-term:
 				// handle exit gracefully
-				errorChan <- errors.New("SIGTERM received")
+				errorChan <- errors.New("bundled_output SIGTERM received")
 				o.tempFileOutput.flushOutput(true)
 				o.tempFileOutput.closeFile()
 				o.uploadAllFilesToUpload()
 				refreshTicker.Stop()
-				log.Info("Received SIGTERM. Exiting")
-				return
+				log.Info("bundled_output Received SIGTERM. Exiting")
+				// done uploading so exit from here
+				os.Exit(0)
 			}
 		}
 	}()

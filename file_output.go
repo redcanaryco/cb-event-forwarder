@@ -143,8 +143,8 @@ func (o *FileOutput) Go(messages <-chan string, errorChan chan<- error) error {
 
 			case <-term:
 				// handle exit gracefully
-				log.Info("Received SIGTERM. Exiting")
-				errorChan <- errors.New("SIGTERM received")
+				log.Info("file_output Received SIGTERM. Exiting")
+				errorChan <- errors.New("file_output SIGTERM received")
 				return
 			}
 		}
@@ -181,7 +181,7 @@ func (o *FileOutput) flushOutput(force bool) error {
 			o.bufferOutput.lastFlush = time.Now()
 			return nil
 
-		} else {
+		} else if o.outputFile != nil {
 			_, err := o.outputFile.Write(o.bufferOutput.buffer.Bytes())
 
 			if err != nil {
