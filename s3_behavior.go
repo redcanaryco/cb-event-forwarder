@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"github.com/google/uuid"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -45,7 +46,7 @@ func (o *S3Behavior) Upload(fileName string, fp *os.File) UploadStatus {
 		if config.S3VerboseKey == true {
 			current_time := time.Now().UTC()
 
-			baseName = fmt.Sprintf("%s/ingest_dt=%s/format=cb_response/%s,ingest_ts=%s,format=cb_response.json", prefix, current_time.Format("2006-01-02"), prefix, current_time.Format("2006-01-02T15:04:05.000Z"))
+			baseName = fmt.Sprintf("%s/ingest_dt=%s/format=cb_response/%s,ingest_ts=%s,rand=%s,format=cb_response.json", prefix, current_time.Format("2006-01-02"), prefix, current_time.Format("2006-01-02T15:04:05.000Z"), strings.Split(uuid.New().String(), "-")[0])
 		} else {
 			s := []string{prefix, filepath.Base(fileName)}
 			baseName = strings.Join(s, "/")
